@@ -1,0 +1,491 @@
+#!/usr/bin/env python3
+"""SPEC v1 mock server — serves the mibee-webui frontend against a fully
+conformant in-memory API, for frontend development without a device.
+
+Implements: auth (session cookie + CSRF), health/status/capabilities,
+config, cameras (multi-camera CRUD + start/stop + snapshot/live/stream.mse
+stubs), imaging, ptz, detections, devices and SSE events.
+
+Usage: python3 tools/mock_server.py [port]   (default 8090)
+"""
+import json
+import math
+import os
+import secrets
+import struct
+import sys
+import threading
+import time
+from http import cookies
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+START = time.time()
+
+# Testing affordance: MOCK_PREAUTH=1 skips the session check so headless
+# screenshot smoke tests can render the authenticated app shell.
+PREAUTH = os.environ.get("MOCK_PREAUTH") == "1"
+
+STATE = {
+    "setup_done": False,
+    "username": "admin",
+    "password": "",  # set by /api/auth/setup
+    "sessions": {},  # token -> username
+    "cameras": [
+        {"id": "0", "name": "Front CSI", "status": "online", "camera_type": "csi",
+         "rtsp_url": "rtsp://localhost:8554/stream", "resolution": "1280x720", "fps": 25},
+    ],
+    "config": {
+        "web": {"port": 8088, "username": "admin", "password": "****"},
+        "camera": {"mode": "mtxrpicam", "width": 1280, "height": 720, "fps": 25,
+                   "bitrate": 2500000, "codec": "h264", "rotation": 0},
+        "rtsp": {"port": 8554, "username": "", "password": "****"},
+        "onvif": {"port": 8080, "username": "admin", "password": "****"},
+        "gb28181": {"enabled": False, "platform_sip_address": "192.168.1.100",
+                    "platform_sip_port": 5060, "device_id": "", "channel_id": "",
+                    "sip_domain": "", "password": "****", "local_sip_port": 5060,
+                    "register_interval_secs": 3600, "heartbeat_interval_secs": 60,
+                    "heartbeat_timeout_count": 3},
+        "logging": {"level": "info"},
+    },
+    "imaging_params": {"Brightness": 0.0, "Contrast": 1.0, "Saturation": 1.0,
+                       "Sharpness": 1.0, "AWBMode": "auto", "ExposureMode": "normal",
+                       "HFlip": False, "VFlip": False},
+    "imaging_options": {
+        "Brightness": {"min": -1, "max": 1, "step": 0.01, "default": 0},
+        "Contrast": {"min": 0, "max": 2, "step": 0.01, "default": 1},
+        "Saturation": {"min": 0, "max": 2, "step": 0.01, "default": 1},
+        "Sharpness": {"min": 0, "max": 8, "step": 0.1, "default": 1},
+        "AWBMode": {"enums": ["auto", "daylight", "cloudy", "incandescent", "fluorescent"]},
+        "ExposureMode": {"enums": ["normal", "night", "sports", "backlight"]},
+    },
+    "ptz": {"pan": 0.5, "tilt": 0.5, "zoom": 1.0},
+    "detections": {"detections": [
+        {"label": "person", "confidence": 0.87, "bbox": [0.2, 0.3, 0.15, 0.4]},
+    ], "model": "mock-yolo", "timestamp": 0},
+    "sse_queues": [],
+}
+
+CAPS = {
+    "spec_version": "1",
+    "device": {"name": "Mock Cam", "model": "mock", "vendor": "MiBee Studio"},
+    "auth": {"model": "session", "setup": True},
+    "multi_camera": True,
+    "camera_management": True,
+    "camera_control": True,
+    "imaging": True,
+    "ai": True,
+    "ptz": True,
+    "hls": False,
+    "recording": True,
+    "devices": True,
+    "mjpeg": True,
+    "mse": True,
+    "webrtc": False,
+    "events": ["camera_added", "camera_offlined", "param_changed", "ai_detection",
+               "recording", "status"],
+    "config_apply": {"default": "restart", "sections": {"imaging": "immediate"}},
+}
+
+AUTH_EXEMPT = {"/api/auth/login", "/api/auth/setup", "/api/auth/logout"}
+
+
+def sse_broadcast(event, payload):
+    data = json.dumps(payload)
+    dead = []
+    for q in STATE["sse_queues"]:
+        try:
+            q.put_nowait(f"event: {event}\ndata: {data}\n\n")
+        except Exception:
+            dead.append(q)
+    for q in dead:
+        STATE["sse_queues"].remove(q)
+
+
+def ai_thread():
+    import queue
+    fn = 0
+    while True:
+        time.sleep(2)
+        fn += 1
+        bbox = [0.2 + 0.1 * math.sin(fn / 5), 0.3, 0.15, 0.4]
+        STATE["detections"]["detections"] = [
+            {"label": "person", "confidence": 0.7 + 0.2 * abs(math.sin(fn / 7)), "bbox": bbox}]
+        sse_broadcast("ai_detection", {"camera_id": "0",
+                                       "detections": STATE["detections"]["detections"],
+                                       "frame_number": fn})
+
+
+class Handler(BaseHTTPRequestHandler):
+    protocol_version = "HTTP/1.1"
+
+    # ── plumbing ────────────────────────────────────────────────────
+    def log_message(self, fmt, *args):
+        sys.stderr.write("[mock] %s\n" % (fmt % args))
+
+    def send_json(self, obj, status=200, extra_headers=None):
+        body = (json.dumps(obj) + "\n").encode()
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        for k, v in (extra_headers or {}).items():
+            values = v if isinstance(v, list) else [v]
+            for item in values:
+                self.send_header(k, item)
+        self.end_headers()
+        self.wfile.write(body)
+
+    def ok(self, data, status=200, extra_headers=None):
+        self.send_json({"ok": True, "data": data}, status, extra_headers)
+
+    def err(self, error, message, status):
+        self.send_json({"ok": False, "error": error, "message": message}, status)
+
+    def parse_cookies(self):
+        jar = cookies.SimpleCookie()
+        for hdr in self.headers.get("Cookie", "").split(";"):
+            if hdr.strip():
+                jar.load(hdr)
+        return {k: morsel.value for k, morsel in jar.items()}
+
+    def body_json(self):
+        length = int(self.headers.get("Content-Length") or 0)
+        if length == 0:
+            return {}
+        return json.loads(self.rfile.read(length) or b"{}")
+
+    def session_user(self):
+        token = self.parse_cookies().get("session")
+        return STATE["sessions"].get(token)
+
+    def authed(self):
+        return PREAUTH or self.session_user() is not None
+
+    def start_session(self):
+        token = secrets.token_urlsafe(24)
+        csrf = secrets.token_urlsafe(24)
+        STATE["sessions"][token] = STATE["username"]
+        return token, csrf
+
+    # ── routing ─────────────────────────────────────────────────────
+    def do_GET(self):
+        raw = self.path
+        path = raw.split("?")[0]
+        if path.startswith("/api/"):
+            if path in ("/api/health", "/api/auth/me") or self.authed():
+                return self.get_api(path)
+            return self.err("unauthorized", "not signed in", 401)
+        if path == "/" or path == "/index.html":
+            return self.serve_file("index.html", "text/html; charset=utf-8")
+        if path == "/smoke":
+            # Screenshot harness: same app, but the stylesheet link carries
+            # ?slow=1 so the load event (when `firefox --screenshot` captures)
+            # fires AFTER the async boot completes → post-login app shell.
+            body = open("static/index.html").read().replace(
+                'href="/style.css"', 'href="/style.css?slow=1"')
+            data = body.encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+            return
+        if path == "/style.css":
+            ctype = "text/css"
+            if "slow=1" in raw:
+                time.sleep(2.5)
+            return self.serve_file("style.css", ctype)
+        if path.startswith("/js/"):
+            return self.serve_file(path.lstrip("/"), "application/javascript")
+        self.send_error(404)
+
+    def do_POST(self):
+        path = self.path.split("?")[0]
+        if path.startswith("/api/"):
+            if path not in AUTH_EXEMPT and not self.authed():
+                return self.err("unauthorized", "not signed in", 401)
+            if path not in AUTH_EXEMPT:
+                ck = self.parse_cookies().get("csrf-token")
+                if not ck or ck != self.headers.get("X-CSRF-Token"):
+                    return self.err("unauthorized", "csrf mismatch", 401)
+            return self.post_api(path)
+        self.send_error(404)
+
+    def do_PUT(self):
+        path = self.path.split("?")[0]
+        if not self.authed():
+            return self.err("unauthorized", "not signed in", 401)
+        ck = self.parse_cookies().get("csrf-token")
+        if not ck or ck != self.headers.get("X-CSRF-Token"):
+            return self.err("unauthorized", "csrf mismatch", 401)
+        if path == "/api/config":
+            return self.put_config()
+        if path.startswith("/api/cameras/") and path.endswith("/recording"):
+            return self.ok({"active": bool(self.body_json().get("active"))})
+        if path.startswith("/api/cameras/"):
+            cid = path.split("/")[3]
+            for cam in STATE["cameras"]:
+                if cam["id"] == cid:
+                    cam.update(self.body_json())
+                    return self.ok(cam)
+            return self.err("not_found", "no such camera", 404)
+        self.send_error(404)
+
+    def do_DELETE(self):
+        path = self.path.split("?")[0]
+        if not self.authed():
+            return self.err("unauthorized", "not signed in", 401)
+        if path.startswith("/api/cameras/"):
+            cid = path.split("/")[3]
+            STATE["cameras"] = [c for c in STATE["cameras"] if c["id"] != cid]
+            return self.send_json({"ok": True, "data": {"status": "ok"}}, 200)
+        self.send_error(404)
+
+    # ── API: GET ────────────────────────────────────────────────────
+    def get_api(self, path):
+        if path == "/api/health":
+            return self.ok({"status": "ok", "uptime": int(time.time() - START)})
+        if path == "/api/auth/me":
+            if not STATE["setup_done"]:
+                return self.err("setup_required", "initial setup required", 503)
+            user = self.session_user() or (STATE["username"] if PREAUTH else None)
+            if user:
+                return self.ok({"username": user, "role": "admin"})
+            return self.err("unauthorized", "not signed in", 401)
+        if path == "/api/status":
+            return self.ok({"device_name": "Mock Cam", "model": "mock",
+                            "vendor": "MiBee Studio", "firmware": "0.1.0-mock",
+                            "uptime": int(time.time() - START), "recording": False,
+                            "gb28181": False})
+        if path == "/api/capabilities":
+            return self.ok(CAPS)
+        if path == "/api/config":
+            return self.ok(STATE["config"])
+        if path == "/api/cameras":
+            return self.ok(STATE["cameras"])
+        if path.startswith("/api/cameras/"):
+            parts = path.split("/")
+            cid = parts[3]
+            cam = next((c for c in STATE["cameras"] if c["id"] == cid), None)
+            if len(parts) == 4:
+                if cam:
+                    return self.ok(cam)
+                return self.err("not_found", "no such camera", 404)
+            if not cam:
+                return self.err("not_found", "no such camera", 404)
+            sub = parts[4]
+            if sub == "imaging":
+                if len(parts) == 6 and parts[5] == "options":
+                    return self.ok(STATE["imaging_options"])
+                return self.ok(STATE["imaging_params"])
+            if sub == "recording":
+                return self.ok({"active": False, "storage_path": "/tmp/mock",
+                                "segment_secs": 900, "retention_days": 7})
+            if sub == "snapshot":
+                return self.serve_jpeg()
+            if sub == "live":
+                return self.serve_mjpeg()
+            if sub == "stream.mse":
+                return self.serve_mse()
+        if path == "/api/ptz/status":
+            return self.ok(STATE["ptz"])
+        if path == "/api/detections":
+            return self.ok(STATE["detections"])
+        if path == "/api/devices/video":
+            return self.ok([{"index": 0, "name": "Mock USB Cam", "formats": ["1920x1080", "1280x720"]},
+                            {"index": 1, "name": "Mock CSI Cam", "formats": ["1640x1232"]}])
+        if path == "/api/devices/video/0/formats":
+            return self.ok([{"width": 1920, "height": 1080, "format": "MJPG", "fps": 30},
+                            {"width": 1280, "height": 720, "format": "YUYV", "fps": 30}])
+        if path == "/api/devices/audio":
+            return self.ok([{"name": "default", "supported_configs": [{"channels": 2}]}])
+        if path == "/api/events":
+            return self.serve_sse()
+        self.send_error(404)
+
+    # ── API: POST ───────────────────────────────────────────────────
+    def post_api(self, path):
+        body = self.body_json()
+        if path == "/api/auth/setup":
+            if STATE["setup_done"]:
+                return self.err("bad_request", "already configured", 400)
+            if not body.get("username") or len(body.get("password") or "") < 8:
+                return self.err("bad_request", "invalid credentials", 400)
+            STATE["setup_done"] = True
+            STATE["username"] = body["username"]
+            STATE["password"] = body["password"]
+            token, csrf = self.start_session()
+            return self.ok({"username": STATE["username"]}, extra_headers=self.cookie_headers(token, csrf))
+        if path == "/api/auth/login":
+            if not STATE["setup_done"]:
+                return self.err("setup_required", "initial setup required", 503)
+            if body.get("username") != STATE["username"] or body.get("password") != STATE["password"]:
+                return self.err("unauthorized", "invalid credentials", 401)
+            token, csrf = self.start_session()
+            return self.ok({"username": STATE["username"]}, extra_headers=self.cookie_headers(token, csrf))
+        if path == "/api/auth/logout":
+            token = self.parse_cookies().get("session")
+            STATE["sessions"].pop(token, None)
+            self.send_response(204)
+            self.send_header("Set-Cookie", "session=; Path=/; Max-Age=0")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
+        if path == "/api/auth/reset":
+            if body.get("old_password") != STATE["password"]:
+                return self.err("unauthorized", "wrong password", 401)
+            STATE["password"] = body["new_password"]
+            STATE["sessions"].clear()
+            token, csrf = self.start_session()
+            return self.ok({"username": STATE["username"]}, extra_headers=self.cookie_headers(token, csrf))
+        if path == "/api/cameras":
+            cam = {"id": secrets.token_hex(4), "name": body.get("name", "camera"),
+                   "status": "idle", "camera_type": body.get("camera_type", "usb"),
+                   "config": body.get("config", {})}
+            STATE["cameras"].append(cam)
+            sse_broadcast("camera_added", {"camera_id": cam["id"], "name": cam["name"]})
+            return self.ok(cam, 201)
+        parts = path.split("/")
+        if path.startswith("/api/cameras/") and len(parts) == 5:
+            cid, action = parts[3], parts[4]
+            cam = next((c for c in STATE["cameras"] if c["id"] == cid), None)
+            if not cam:
+                return self.err("not_found", "no such camera", 404)
+            if action == "start":
+                if cam["status"] == "online":
+                    return self.err("conflict", "already running", 409)
+                cam["status"] = "online"
+                return self.ok(cam)
+            if action == "stop":
+                cam["status"] = "idle"
+                return self.ok(cam)
+            if action == "recording":
+                active = bool(body.get("active"))
+                sse_broadcast("recording", {"camera_id": cid, "active": active})
+                return self.ok({"active": active})
+            if action == "imaging" and len(parts) == 5:
+                return self.ok({"status": "ok"})
+        if path.startswith("/api/cameras/") and "/imaging/param" in path:
+            name = body.get("name")
+            STATE["imaging_params"][name] = body.get("value")
+            sse_broadcast("param_changed", {"camera_id": parts[3], "name": name,
+                                            "value": body.get("value")})
+            return self.ok({"name": name, "value": body.get("value")})
+        if path == "/api/ptz/move":
+            STATE["ptz"].update({k: v for k, v in body.items() if v is not None})
+            return self.ok(STATE["ptz"])
+        self.send_error(404)
+
+    # ── API: PUT config ─────────────────────────────────────────────
+    def put_config(self):
+        def merge(dst, src):
+            for k, v in src.items():
+                if isinstance(v, dict) and isinstance(dst.get(k), dict):
+                    merge(dst[k], v)
+                else:
+                    if v == "****":
+                        continue  # masked round-trip (SPEC §5)
+                    dst[k] = v
+        merge(STATE["config"], self.body_json())
+        return self.ok({"applied": "restart"})
+
+    # ── media stubs ─────────────────────────────────────────────────
+    def serve_file(self, rel, ctype):
+        try:
+            with open("static/" + rel, "rb") as f:
+                body = f.read()
+        except OSError:
+            return self.send_error(404)
+        self.send_response(200)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-cache")
+        self.end_headers()
+        self.wfile.write(body)
+
+    def jpeg_frame(self, w=320, h=180):
+        # Tiny valid JPEG (1x1 gray) repeated is fine for smoke purposes.
+        return b"\xff\xd8\xff\xd9"
+
+    def serve_jpeg(self):
+        body = self.jpeg_frame()
+        self.send_response(200)
+        self.send_header("Content-Type", "image/jpeg")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def serve_mjpeg(self):
+        self.send_response(200)
+        self.send_header("Content-Type", "multipart/x-mixed-replace; boundary=mibeejpeg")
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        try:
+            for _ in range(30):
+                frame = self.jpeg_frame()
+                self.wfile.write(b"--mibeejpeg\r\nContent-Type: image/jpeg\r\n\r\n" + frame + b"\r\n")
+                self.wfile.flush()
+                time.sleep(0.5)
+        except Exception:
+            pass
+
+    def serve_mse(self):
+        # fMP4 stub: a few bytes then hold open; browsers will stall+retry,
+        # which exercises the player's reconnect path in smoke tests.
+        self.send_response(200)
+        self.send_header("Content-Type", "video/mp4")
+        self.send_header("Transfer-Encoding", "chunked")
+        self.end_headers()
+        try:
+            for _ in range(20):
+                chunk = bytes([0]) * 8
+                self.wfile.write(("%x\r\n" % len(chunk)).encode() + chunk + b"\r\n")
+                self.wfile.flush()
+                time.sleep(0.5)
+            self.wfile.write(b"0\r\n\r\n")
+        except Exception:
+            pass
+
+    def serve_sse(self):
+        import queue
+        q = queue.Queue(maxsize=64)
+        STATE["sse_queues"].append(q)
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        try:
+            while True:
+                try:
+                    msg = q.get(timeout=15)
+                    self.wfile.write(msg.encode())
+                except queue.Empty:
+                    self.wfile.write(": keepalive\n\n")
+                self.wfile.flush()
+        except Exception:
+            pass
+        finally:
+            STATE["sse_queues"].remove(q)
+
+    @staticmethod
+    def cookie_headers(token, csrf):
+        return {"Set-Cookie": [
+            f"session={token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=86400",
+            f"csrf-token={csrf}; Path=/; SameSite=Strict",
+        ]}
+
+
+def main():
+    port = int(sys.argv[1]) if len(sys.argv) > 1 else 8090
+    threading.Thread(target=ai_thread, daemon=True).start()
+    server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
+    print(f"mock SPEC server on http://127.0.0.1:{port} (first boot: setup flow, admin/12345678)")
+    STATE["setup_done"] = False
+    if PREAUTH:
+        # Headless smoke: act as an already-configured, signed-in device.
+        STATE["setup_done"] = True
+        STATE["password"] = "12345678"
+    server.serve_forever()
+
+
+if __name__ == "__main__":
+    main()

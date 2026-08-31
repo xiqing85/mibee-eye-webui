@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#0a0e14">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'><circle cx='24' cy='24' r='20' fill='none' stroke='%2300c8a0' stroke-width='2'/><circle cx='24' cy='24' r='2' fill='%2300c8a0'/></svg>">
+  <title>MiBee Cam</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <!-- ===== Login / Setup View ===== -->
+  <div id="view-login" class="view active">
+    <div class="login-overlay">
+      <div class="login-box">
+        <div class="login-brand">
+          <svg class="brand-icon" viewBox="0 0 48 48" width="48" height="48">
+            <circle cx="24" cy="24" r="20" fill="none" stroke="currentColor" stroke-width="2"/>
+            <circle cx="24" cy="24" r="8" fill="none" stroke="currentColor" stroke-width="2"/>
+            <circle cx="24" cy="24" r="2" fill="currentColor"/>
+            <path d="M24 4v6M24 38v6M4 24h6M38 24h6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+          </svg>
+          <h1>MiBee Cam</h1>
+          <p class="login-subtitle" data-i18n="loginSubtitle">Unified device management</p>
+        </div>
+        <!-- SPEC §2: session auth. The username and confirm fields only
+             appear in first-boot setup mode (503 setup_required). -->
+        <form id="login-form" autocomplete="on">
+          <div class="field hidden" id="auth-username-field">
+            <label for="login-username" data-i18n="newUsername">Admin username</label>
+            <input type="text" id="login-username" name="username" autocomplete="username">
+          </div>
+          <div class="field">
+            <label for="login-password" data-i18n="password">Password</label>
+            <div class="password-wrap">
+              <input type="password" id="login-password" name="password" autocomplete="current-password" autofocus required>
+              <button type="button" class="password-toggle" data-target="login-password" aria-label="Show password">&#128065;</button>
+            </div>
+          </div>
+          <div class="field hidden" id="login-password2-field">
+            <label for="login-password2" data-i18n="passwordConfirm">Confirm password</label>
+            <div class="password-wrap">
+              <input type="password" id="login-password2" name="password2" autocomplete="new-password">
+            </div>
+          </div>
+          <div id="login-error" class="msg-error hidden" role="alert"></div>
+          <button type="submit" class="btn-primary btn-full" data-i18n="loginBtn">Sign In</button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== Main App Shell ===== -->
+  <div id="app" class="hidden">
+    <!-- Top Navigation -->
+    <nav id="nav">
+      <div class="nav-brand">
+        <svg viewBox="0 0 48 48" width="28" height="28">
+          <circle cx="24" cy="24" r="20" fill="none" stroke="currentColor" stroke-width="2"/>
+          <circle cx="24" cy="24" r="2" fill="currentColor"/>
+        </svg>
+        <span>MiBee Cam</span>
+      </div>
+      <div class="nav-tabs">
+        <button class="nav-tab active" data-view="preview" data-i18n="live">Live</button>
+        <button class="nav-tab hidden" data-view="cameras" data-i18n="cameras">Cameras</button>
+        <button class="nav-tab" data-view="settings" data-i18n="settings">Settings</button>
+        <button class="nav-tab" data-view="status" data-i18n="status">Status</button>
+        <button class="nav-tab hidden" data-view="devices" data-i18n="devices">Devices</button>
+      </div>
+      <div class="nav-tools">
+        <button class="tool-btn lang-btn" aria-pressed="false" title="Language">中/EN</button>
+        <button class="tool-btn theme-btn" aria-pressed="true" title="Theme">
+          <svg class="icon-sun hidden" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><circle cx="12" cy="12" r="4" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M19.1 4.9l-1.4 1.4M6.3 17.7l-1.4 1.4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          <svg class="icon-moon" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
+        </button>
+        <button class="tool-btn logout-btn" data-i18n="logout">Logout</button>
+      </div>
+    </nav>
+
+    <!-- Mobile Nav (bottom bar) -->
+    <nav id="nav-mobile">
+      <div class="nav-mobile-tabs">
+        <button class="nav-tab active" data-view="preview" data-i18n="live">Live</button>
+        <button class="nav-tab hidden" data-view="cameras" data-i18n="cameras">Cameras</button>
+        <button class="nav-tab" data-view="settings" data-i18n="settings">Settings</button>
+        <button class="nav-tab" data-view="status" data-i18n="status">Status</button>
+        <button class="nav-tab hidden" data-view="devices" data-i18n="devices">Devices</button>
+      </div>
+      <div class="nav-mobile-tools">
+        <button class="tool-btn lang-btn" aria-pressed="false">中/EN</button>
+        <button class="tool-btn theme-btn" aria-pressed="true">
+          <svg class="icon-sun hidden" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><circle cx="12" cy="12" r="4" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M19.1 4.9l-1.4 1.4M6.3 17.7l-1.4 1.4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          <svg class="icon-moon" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
+        </button>
+        <button class="tool-btn logout-btn" data-i18n="logout">Logout</button>
+      </div>
+    </nav>
+
+    <!-- ===== View: Live Preview ===== -->
+    <div id="view-preview" class="view active">
+      <div class="live-toolbar">
+        <div class="field hidden" id="live-camera-field">
+          <label for="live-camera-select" data-i18n="liveCamera">Live</label>
+          <select id="live-camera-select" class="camera-select"></select>
+        </div>
+      </div>
+      <div class="stream-wrapper">
+        <video id="stream-video" autoplay muted playsinline style="width:100%;height:100%;object-fit:contain"></video>
+        <img id="stream-img" class="stream-img hidden" alt="live" style="width:100%;height:100%;object-fit:contain">
+        <span id="mjpeg-fallback-badge" class="stream-mode-badge hidden" data-i18n="fallbackMjpeg">MJPEG</span>
+        <!-- AI detection overlay (extension: ai) -->
+        <canvas id="detection-overlay" class="detection-box" aria-hidden="true"></canvas>
+        <div class="stream-hud hud-left">
+          <span class="live-dot" id="stream-live-dot" aria-hidden="true"></span>
+          <span id="stream-clock" class="stream-clock">--:--:--</span>
+          <span class="hud-sep">&middot;</span>
+          <span id="stream-health" class="stream-health">--&times;--</span>
+        </div>
+        <div class="stream-flip">
+          <button type="button" id="btn-hflip" class="stream-ctl-btn" aria-label="H flip" aria-pressed="false" title="H flip">
+            <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M12 3v18" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M9 8L5 12l4 4M15 8l4 4-4 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+          <button type="button" id="btn-vflip" class="stream-ctl-btn" aria-label="V flip" aria-pressed="false" title="V flip">
+            <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M3 12h18" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M8 9l4-4 4 4M8 15l4 4 4-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+        </div>
+        <div class="stream-controls">
+          <button type="button" id="btn-snapshot" class="stream-ctl-btn" aria-label="Snapshot" title="Snapshot">
+            <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M3 7h4l2-3h6l2 3h4v13H3V7z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><circle cx="12" cy="13" r="4" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+          </button>
+          <button type="button" id="btn-fullscreen" class="stream-ctl-btn" aria-label="Fullscreen" title="Fullscreen">
+            <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+        </div>
+        <div id="stream-error" class="hidden">
+          <span id="stream-error-label" data-i18n="streamError">Stream unavailable</span>
+          <button type="button" id="stream-retry" class="btn-primary" data-i18n="retry">Retry</button>
+        </div>
+        <div class="stream-loading" id="stream-loading">
+          <div class="spinner"></div>
+          <span id="stream-loading-label" data-i18n="loading">Loading...</span>
+        </div>
+      </div>
+
+      <!-- PTZ panel (extension: ptz) -->
+      <div class="ptz-panel hidden" id="ptz-panel">
+        <h3 class="panel-title" data-i18n="ptzControl">PTZ Control</h3>
+        <div class="ptz-pad">
+          <button class="ptz-btn" data-dir="up" aria-label="Pan up"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+          <button class="ptz-btn" data-dir="left" aria-label="Pan left"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M19 12H5M12 19l-7-7 7-7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+          <button class="ptz-btn home" data-dir="home" aria-label="Home position"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M3 11l9-7 9 7M5 10v10h14V10" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+          <button class="ptz-btn" data-dir="right" aria-label="Pan right"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M5 12h14M12 5l7 7-7 7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+          <button class="ptz-btn" data-dir="down" aria-label="Pan down"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M12 5v14M5 12l7 7 7-7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+        </div>
+        <div class="ptz-zoom">
+          <label for="zoom-slider"><span data-i18n="zoom">Zoom</span>: <span id="zoom-value">1.0</span>x</label>
+          <input type="range" id="zoom-slider" min="0.5" max="5" step="0.1" value="1">
+        </div>
+        <div class="ptz-status">
+          <span data-i18n="pan">Pan</span>: <span id="ptz-pan">0&deg;</span> |
+          <span data-i18n="tilt">Tilt</span>: <span id="ptz-tilt">0&deg;</span>
+        </div>
+      </div>
+
+      <!-- Imaging controls (extension: imaging) -->
+      <div class="card imaging-section hidden" id="imaging-section">
+        <div class="imaging-header-row">
+          <h3 class="panel-title" data-i18n="imagingTitle">Imaging Controls</h3>
+          <button type="button" id="imaging-reset" class="btn-small" data-i18n="imagingReset">Reset defaults</button>
+        </div>
+        <div id="imaging-controls"></div>
+      </div>
+    </div>
+
+    <!-- ===== View: Cameras (multi_camera only) ===== -->
+    <div id="view-cameras" class="view">
+      <h2 data-i18n="camerasTitle">Cameras</h2>
+      <div id="cameras-grid" class="cameras-grid"></div>
+    </div>
+
+    <!-- ===== View: Settings ===== -->
+    <div id="view-settings" class="view">
+      <div class="settings-header">
+        <h2 data-i18n="configTitle">Configuration</h2>
+        <div class="settings-actions">
+          <span id="unsaved-indicator" class="unsaved-indicator hidden" data-i18n="unsaved">Unsaved changes</span>
+          <button id="save-config" class="btn-primary" data-i18n="save">Save</button>
+        </div>
+      </div>
+      <div id="config-apply-banner" class="apply-banner hidden" data-i18n="applyRestart">Some settings need a device restart to take effect</div>
+      <div class="settings-toggles">
+        <div class="toggle-row hidden" id="ptz-toggle-row">
+          <div class="toggle-info">
+            <label for="ptz-toggle" class="toggle-title" data-i18n="ptzControl">PTZ Control</label>
+            <span class="toggle-desc" data-i18n="ptzEnableDesc">Show direction controls on the Live view</span>
+          </div>
+          <label class="switch">
+            <input type="checkbox" id="ptz-toggle">
+            <span class="switch-slider"></span>
+          </label>
+        </div>
+      </div>
+      <div id="config-loading" class="loading-state">
+        <div class="spinner"></div>
+        <span data-i18n="loading">Loading...</span>
+      </div>
+      <form id="config-form" class="hidden"></form>
+    </div>
+
+    <!-- ===== View: Status ===== -->
+    <div id="view-status" class="view">
+      <h2 data-i18n="statusTitle">System Status</h2>
+      <div class="status-grid">
+        <div class="card">
+          <h3 data-i18n="cameraInfo">Camera Info</h3>
+          <div class="ptz-readings" id="camera-info"></div>
+        </div>
+        <div class="card">
+          <h3 data-i18n="statusTitle">System</h3>
+          <div class="ptz-readings" id="device-info"></div>
+        </div>
+        <div class="card hidden" id="ptz-status-card">
+          <h3 data-i18n="ptzPosition">PTZ Position</h3>
+          <div class="ptz-readings">
+            <div class="reading"><span class="reading-label" data-i18n="pan">Pan</span><span class="reading-val" id="s-pan">0&deg;</span></div>
+            <div class="reading"><span class="reading-label" data-i18n="tilt">Tilt</span><span class="reading-val" id="s-tilt">0&deg;</span></div>
+            <div class="reading"><span class="reading-label" data-i18n="zoom">Zoom</span><span class="reading-val" id="s-zoom">1.0x</span></div>
+          </div>
+        </div>
+        <div class="card">
+          <h3 data-i18n="connection">Connection</h3>
+          <div class="conn-status">
+            <div class="conn-row" id="events-row"><span data-i18n="events">Events</span><span class="status-badge offline" id="events-badge">&bull; <span id="events-label" data-i18n="disconnected">Disconnected</span></span></div>
+            <div class="conn-row"><span data-i18n="apiLabel">API</span><span class="status-badge" id="api-badge">&bull; <span id="api-label" data-i18n="checking">Checking...</span></span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== View: Devices (devices capability only) ===== -->
+    <div id="view-devices" class="view">
+      <h2 data-i18n="devicesTitle">Host Devices</h2>
+      <div class="card">
+        <h3 data-i18n="videoDevices">Video devices</h3>
+        <div id="video-devices"></div>
+      </div>
+      <div class="card">
+        <h3 data-i18n="audioDevices">Audio devices</h3>
+        <div id="audio-devices"></div>
+      </div>
+      <div class="card">
+        <h3 data-i18n="hostCaps">Host capabilities</h3>
+        <div class="ptz-readings" id="device-caps"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== Toast Container ===== -->
+  <div id="toast-container" aria-live="polite"></div>
+
+  <script type="module" src="/js/main.js"></script>
+</body>
+</html>
