@@ -108,6 +108,18 @@ with sync_playwright() as p:
     check("cameras: 2 tiles", tiles.count() == 2)
     check("cameras: icon action buttons",
           pg.locator(".tile-actions button .icon").count() >= 4)
+    # device-level flip buttons (camera_management): toggle + pressed state
+    flip_h = pg.locator(".tile-actions .btn-flip").first
+    before = flip_h.get_attribute("aria-pressed")
+    flip_h.click()
+    pg.wait_for_timeout(1200)
+    flip_h = pg.locator(".tile-actions .btn-flip").first
+    after = flip_h.get_attribute("aria-pressed")
+    check("cameras: device flip toggles", before != after, f"{before} -> {after}")
+    check("cameras: flip toast", pg.locator(".toast").count() >= 1)
+    shot(pg, "06b-cameras-flip-pressed")
+    flip_h.click()  # restore
+    pg.wait_for_timeout(1000)
     # delete → in-app confirm dialog → cancel
     pg.locator(".tile-actions .btn-danger").first.click()
     pg.wait_for_timeout(500)

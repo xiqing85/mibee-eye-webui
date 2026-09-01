@@ -223,6 +223,7 @@ MSE 流细则：init segment（`ftyp`+`moov`）只发一次，随后每访问单
 6. **Go HLS**（`/hls/*`）与其 metrics 独立端口 :9100 保留为 Go 专属方言。
 7. **notebook 协议热切换**：`GET /api/protocols/runtime-status` 为 notebook 扩展端点（ONVIF/GB28181/RTMP 运行态），配置本体已并入 `/api/config` 的 `protocols` 节。
 8. **配置文件格式**：Go YAML、Pi Rust TOML、notebook SQLite —— 对前端不可见，仅是 `PUT /api/config` 的落地方式。
+9. **设备级翻转（hflip/vflip）**：翻转烘焙进编码流，对所有观看端（RTSP/ONVIF/GB28181/录像/快照）持久生效，与浏览器端仅显示用的直播翻转按钮（localStorage）相互独立。配置位置方言：rs 为 `/api/config` 的 `camera.hflip`/`camera.vflip`（bool，重启生效）；Go 为同名字段（经 libcamera transform，重启生效）；notebook 为每相机 `PUT /api/cameras/{id}` 的 `config.hflip`/`config.vflip`（相机流 (重)启时生效，前端相机卡片提供翻转按钮并自动 stop→start）。
 
 ## 8. 附录 B：本规范取代的旧端点（迁移对照）
 
