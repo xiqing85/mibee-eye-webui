@@ -318,7 +318,9 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/auth/login":
             if not STATE["setup_done"]:
                 return self.err("setup_required", "initial setup required", 503)
-            if body.get("username") != STATE["username"] or body.get("password") != STATE["password"]:
+            # SPEC §2: an empty/omitted username defaults to the stored one.
+            sent_user = body.get("username") or STATE["username"]
+            if sent_user != STATE["username"] or body.get("password") != STATE["password"]:
                 return self.err("unauthorized", "invalid credentials", 401)
             token, csrf = self.start_session()
             return self.ok({"username": STATE["username"]}, extra_headers=self.cookie_headers(token, csrf))
