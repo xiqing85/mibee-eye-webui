@@ -11,7 +11,7 @@ Usage:
 
 Examples:
   tools/browser_walkthrough.py http://<rs-device-ip>:8088 2022-02-22
-  tools/browser_walkthrough.py https://127.0.0.1:8443 testpass123 admin nb
+  tools/browser_walkthrough.py https://127.0.0.1:8443 2022-02-22 admin nb
 
 One-time setup (no node needed):
   python3 -m venv .venv && .venv/bin/pip install playwright

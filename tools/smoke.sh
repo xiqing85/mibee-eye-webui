@@ -7,7 +7,7 @@
 # Examples:
 #   tools/smoke.sh http://<rs-device-ip>:8088 2022-02-22          # raspi-rs
 #   tools/smoke.sh http://<go-device-ip>:8088 2022-02-22          # raspi-go
-#   tools/smoke.sh https://127.0.0.1:8443 testpass123 admin       # notebook (TLS, self-signed)
+#   tools/smoke.sh https://127.0.0.1:8443 2022-02-22 admin       # notebook (TLS, self-signed)
 #
 # No dependencies beyond curl + a cookie jar in ${TMPDIR}. Exit 0 = all pass.
 set -uo pipefail
