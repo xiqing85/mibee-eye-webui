@@ -44,7 +44,7 @@ python3 -m venv .venv && .venv/bin/pip install playwright
 跑（自动处理首启 setup / 错密码 / 登录 / 相机启动 / 直播播放头推进 / 各视图 / 语言主题 / 登出；截图落 `tmp/walkthrough-<tag>/`；退出码非 0 = 有问题）：
 
 ```bash
-.venv/bin/python tools/browser_walkthrough.py http://<rs-device-ip>:8088 <密码> admin rs
+.venv/bin/python tools/ux_visual_check.py (mock, 47 项交互/视觉断言 + 截图) 与 tools/browser_walkthrough.py http://<rs-device-ip>:8088 <密码> admin rs
 .venv/bin/python tools/browser_walkthrough.py http://<go-device-ip>:8088 <密码> admin go
 .venv/bin/python tools/browser_walkthrough.py https://127.0.0.1:8443 <密码> admin nb
 ```
