@@ -215,7 +215,7 @@ MSE 流细则：init segment（`ftyp`+`moov`）只发一次，随后每访问单
 
 ## 7. 附录 A：接受的设备方言（差异显式清单）
 
-1. **传输层**：Pi 走 HTTP :8088（cookie 无 `Secure`）；notebook 走 TLS :8443（cookie 带 `Secure`）。前端以 `location.protocol` 自适应。
+1. **传输层**：Pi 走 HTTP :8088（cookie 无 `Secure`）；notebook 默认 TLS :8443（cookie 带 `Secure`），可另配 `web.http_port` 开启一个附加纯 HTTP 监听用于局域网免证书访问——经该端口颁发的会话 cookie 不带 `Secure`（浏览器拒发 `Secure` cookie 到 http://，带上会导致 HTTP 端口无法登录）。前端以 `location.protocol` 自适应。
 2. **Go 遗留 `/snapshot`**（:8088，无认证）保留，专供 NVR 拉流，与 `/api/cameras/0/snapshot` 并存。
 3. **凭证存储**：Pi 存于配置文件（会话为内存态，进程重启即全员下线）；notebook 存 SQLite（bcrypt 哈希，会话持久）。认证协议层面无差别。
 4. **Go 无 MJPEG**（H.264 管线无原始帧），`capabilities.mjpeg=false`，前端回落快照轮询。
