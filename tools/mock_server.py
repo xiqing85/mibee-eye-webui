@@ -62,8 +62,9 @@ STATE = {
         "ExposureMode": {"enums": ["normal", "night", "sports", "backlight"]},
     },
     "ptz": {"pan": 0.5, "tilt": 0.5, "zoom": 1.0},
+    # bbox is in video pixels (SPEC §4.6); the mock camera streams 1280×720.
     "detections": {"detections": [
-        {"label": "person", "confidence": 0.87, "bbox": [0.2, 0.3, 0.15, 0.4]},
+        {"label": "person", "confidence": 0.87, "bbox": [256, 216, 192, 288]},
     ], "model": "mock-yolo", "timestamp": 0},
     "sse_queues": [],
 }
@@ -113,7 +114,7 @@ def ai_thread():
     while True:
         time.sleep(2)
         fn += 1
-        bbox = [0.2 + 0.1 * math.sin(fn / 5), 0.3, 0.15, 0.4]
+        bbox = [round(256 + 128 * math.sin(fn / 5)), 216, 192, 288]
         STATE["detections"]["detections"] = [
             {"label": "person", "confidence": 0.7 + 0.2 * abs(math.sin(fn / 7)), "bbox": bbox}]
         sse_broadcast("ai_detection", {"camera_id": "0",
