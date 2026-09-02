@@ -41,11 +41,14 @@ STATE = {
         "rtsp": {"port": 8554, "username": "", "password": "****"},
         "onvif": {"port": 8080, "username": "admin", "password": "****"},
         "gb28181": {"enabled": False, "platform_sip_address": "192.168.1.100",
-                    "platform_sip_port": 5060, "device_id": "", "channel_id": "",
+                    "platform_sip_port": 5060, "device_id": "34020000001320000001",
+                    "channel_id": "34020000001310000001",
                     "sip_domain": "", "password": "****", "local_sip_port": 5060,
                     "register_interval_secs": 3600, "heartbeat_interval_secs": 60,
                     "heartbeat_timeout_count": 3},
         "logging": {"level": "info"},
+        "features": {"ai": {"enabled": False, "model_path": "models/nanodet-m.onnx",
+                            "cpu_cores": [2, 3]}},
     },
     "imaging_params": {"Brightness": 0.0, "Contrast": 1.0, "Saturation": 1.0,
                        "Sharpness": 1.0, "AWBMode": "auto", "ExposureMode": "normal",
@@ -379,15 +382,32 @@ class Handler(BaseHTTPRequestHandler):
 
     # ── API: PUT config ─────────────────────────────────────────────
     def put_config(self):
-        def merge(dst, src):
+        errors = []
+
+        def merge(dst, src, path=""):
+            # Type fidelity: real devices reject a number where the config
+            # schema declares a string (SPEC §5 round-trip must preserve
+            # types — 20-digit SIP IDs overflow float64 besides).
             for k, v in src.items():
+                p = f"{path}.{k}" if path else k
                 if isinstance(v, dict) and isinstance(dst.get(k), dict):
-                    merge(dst[k], v)
-                else:
-                    if v == "****":
-                        continue  # masked round-trip (SPEC §5)
-                    dst[k] = v
+                    merge(dst[k], v, p)
+                    continue
+                if isinstance(dst.get(k), str) and isinstance(v, (int, float)) and not isinstance(v, bool):
+                    errors.append(p)
+                    continue
+                if isinstance(dst.get(k), list) and isinstance(v, dict):
+                    errors.append(p)
+                    continue
+                if v == "****":
+                    continue  # masked round-trip (SPEC §5)
+                dst[k] = v
+
         merge(STATE["config"], self.body_json())
+        if errors:
+            return self.err("bad_request",
+                            "invalid config: numeric value for string field(s): "
+                            + ", ".join(sorted(errors)), 400)
         return self.ok({"applied": "restart"})
 
     # ── media stubs ─────────────────────────────────────────────────
