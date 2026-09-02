@@ -86,7 +86,10 @@ CAPS = {
     "webrtc": False,
     "events": ["camera_added", "camera_offlined", "param_changed", "ai_detection",
                "recording", "status"],
-    "config_apply": {"default": "restart", "sections": {"imaging": "immediate"}},
+    "config_apply": {"default": "restart", "sections": {"imaging": "immediate",
+                                                        # demonstrates the immediate badge on a real config section
+                                                        "logging": "immediate"}},
+    "restart": True,
 }
 
 AUTH_EXEMPT = {"/api/auth/login", "/api/auth/setup", "/api/auth/logout"}
@@ -378,6 +381,12 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/ptz/move":
             STATE["ptz"].update({k: v for k, v in body.items() if v is not None})
             return self.ok(STATE["ptz"])
+        if path == "/api/system/restart":
+            # SPEC §5.1 — respond, then act. The mock has no process to
+            # recycle, so simulate it by resetting the uptime clock.
+            global START
+            START = time.time()
+            return self.ok({"status": "restarting"})
         self.send_error(404)
 
     # ── API: PUT config ─────────────────────────────────────────────
