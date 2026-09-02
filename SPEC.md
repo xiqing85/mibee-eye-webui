@@ -174,6 +174,8 @@ MSE 流细则：init segment（`ftyp`+`moov`）只发一次，随后每访问单
 |------|------|------|
 | GET | `/api/detections` | `{"detections":[{"label","confidence","bbox":[x,y,w,h]}],"model","timestamp"}`；未启用时 `{"enabled":false}` |
 
+**bbox 坐标系**：`[x, y, w, h]` 为整数**视频像素**，原点左上角，坐标系为相机原生流分辨率（即 `/api/cameras` 返回的流分辨率，如 1280×720）。不是模型输入分辨率，也不是 0..1 归一化值——设备必须把模型空间坐标映射回视频像素空间后再返回（模型内部将 16:9 帧拉伸进正方形输入时，x/y 轴缩放比不同，映射不可省略）。
+
 ### 4.7 PTZ（Extension：`ptz`，虚拟或实云台）
 
 | 方法 | 路径 | 说明 |
@@ -219,7 +221,7 @@ MSE 流细则：init segment（`ftyp`+`moov`）只发一次，随后每访问单
 | `camera_added` | `{"camera_id","name","device_index"?}` | notebook 热插拔 |
 | `camera_offlined` | `{"camera_id"}` | notebook 热插拔 |
 | `param_changed` | `{"camera_id","name","value"}` | imaging 参数被任意客户端修改 |
-| `ai_detection` | `{"camera_id","detections":[{"label","confidence","bbox"}],"frame_number"?}` | AI 推理帧 |
+| `ai_detection` | `{"camera_id","detections":[{"label","confidence","bbox"}],"frame_number"?}` | AI 推理帧；bbox 坐标系同 §4.6（视频像素空间） |
 | `recording` | `{"camera_id","active"}` | 录像启停 |
 | `status` | `{"uptime",...}` | 周期状态摘要（可选） |
 
