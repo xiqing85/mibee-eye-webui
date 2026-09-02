@@ -203,6 +203,10 @@
       <div id="config-apply-banner" class="apply-banner hidden">
         <svg class="icon" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3.5 2.8 19.5h18.4z"/><path d="M12 10v4.2M12 17.2v.2"/></svg>
         <span data-i18n="applyRestart">Some settings need a device restart to take effect</span>
+        <button type="button" id="btn-restart-device" class="btn-small btn-restart hidden">
+          <svg class="icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 12a7.5 7.5 0 0 1 12.9-5.2L20 9.2"/><path d="M20 4.2v5h-5"/><path d="M19.5 12a7.5 7.5 0 0 1-12.9 5.2L4 14.8"/><path d="M4 19.8v-5h5"/></svg>
+          <span data-i18n="restartNow">Restart now</span>
+        </button>
       </div>
       <div class="settings-toggles">
         <div class="toggle-row hidden" id="ptz-toggle-row">
@@ -287,6 +291,12 @@
         <button type="button" id="confirm-ok" class="btn-primary" data-i18n="confirm">Confirm</button>
       </div>
     </div>
+  </div>
+
+  <!-- ===== Restart Overlay (SPEC §5.1) ===== -->
+  <div id="restart-overlay" class="restart-overlay hidden">
+    <div class="spinner"></div>
+    <span id="restart-overlay-label" data-i18n="restarting">Restarting…</span>
   </div>
 
   <!-- ===== Toast Container ===== -->

@@ -89,7 +89,8 @@ CSRF 契约：所有 `POST/PUT/DELETE/PATCH` 到 `/api/*`（auth 族除外：log
   "mse": true,
   "webrtc": false,
   "events": ["param_changed", "ai_detection"],
-  "config_apply": {"default": "restart", "sections": {"imaging": "immediate"}}
+  "config_apply": {"default": "restart", "sections": {"imaging": "immediate"}},
+  "restart": true
 }
 ```
 
@@ -100,7 +101,8 @@ CSRF 契约：所有 `POST/PUT/DELETE/PATCH` 到 `/api/*`（auth 族除外：log
 - `imaging` / `ai` / `ptz` / `hls` / `recording` / `devices` / `webrtc`：对应 Extension 端点存在。
 - `mjpeg` / `mse`：对应流端点存在（前端回落链 MSE → MJPEG → 快照轮询）。
 - `events`：SSE 实际会推送的事件词汇表（§6）。
-- `config_apply`：`"restart"`（写后需进程重启生效）/ `"immediate"`（立即生效），按配置节细化。
+- `config_apply`：`"restart"`（写后需进程重启生效）/ `"immediate"`（立即生效），按配置节细化；节未列出时用 `default`。前端应在每个配置节标题处标注其生效时机，并在改动了 `restart` 节后向用户提供重启入口（§5.1）。
+- `restart`：设备支持 `POST /api/system/restart`（§5.1）。
 
 ## 4. 相机资源（Core）
 
@@ -194,7 +196,15 @@ MSE 流细则：init segment（`ftyp`+`moov`）只发一次，随后每访问单
 | GET | `/api/config` | 完整配置文档（各设备 schema 不同），机密字段（`password` 等）脱敏为 `"****"` |
 | PUT | `/api/config` | **部分合并**写：只提交要改的子树，深合并到现配置；`"****"` 值原样写回时服务端还原为存储值。响应 `{"applied":"restart"|"immediate"}` |
 
-前端职责：读取 → 递归渲染编辑器 → 收集变更子树 → 深合并 → PUT。生效语义从 `capabilities.config_apply` 读取并向用户展示（如"保存后需重启生效"横幅）。机头字段名统一 `web.username` / `web.password` / `rtsp.*` / `onvif.*` / `gb28181.*`（各设备多出的节自由扩展）。
+前端职责：读取 → 递归渲染编辑器 → 收集变更子树 → 深合并 → PUT。生效语义从 `capabilities.config_apply` 读取并向用户展示：每个配置节标题处标注「需重启生效」/「立即生效」；改动了 `restart` 节并保存后，若设备通告 `restart` 能力，展示"立即重启"入口。机头字段名统一 `web.username` / `web.password` / `rtsp.*` / `onvif.*` / `gb28181.*`（各设备多出的节自由扩展）。
+
+### 5.1 服务重启（Extension：`restart`）
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | `/api/system/restart` | 重启设备服务进程（应用所有 `restart` 语义的已保存配置）。响应 `200 {"status":"restarting"}` 后尽快返回，随后进程退出并拉起（正常数秒内）。幂等：重启中重复调用无副作用 |
+
+前端流程：确认对话框 → POST → 轮询 `GET /api/health`（公开）至恢复 → 刷新页面。
 
 ## 6. 事件通道（Core：`GET /api/events`，SSE）
 
@@ -224,6 +234,7 @@ MSE 流细则：init segment（`ftyp`+`moov`）只发一次，随后每访问单
 7. **notebook 协议热切换**：`GET /api/protocols/runtime-status` 为 notebook 扩展端点（ONVIF/GB28181/RTMP 运行态），配置本体已并入 `/api/config` 的 `protocols` 节。
 8. **配置文件格式**：Go YAML、Pi Rust TOML、notebook SQLite —— 对前端不可见，仅是 `PUT /api/config` 的落地方式。
 9. **设备级翻转（hflip/vflip）**：翻转烘焙进编码流，对所有观看端（RTSP/ONVIF/GB28181/录像/快照）持久生效，与浏览器端仅显示用的直播翻转按钮（localStorage）相互独立。配置位置方言：rs 为 `/api/config` 的 `camera.hflip`/`camera.vflip`（bool，重启生效）；Go 为同名字段（经 libcamera transform，重启生效）；notebook 为每相机 `PUT /api/cameras/{id}` 的 `config.hflip`/`config.vflip`（相机流 (重)启时生效，前端相机卡片提供翻转按钮并自动 stop→start）。
+10. **配置生效路径**：Go 保存即自动重启服务（`applied:"restart"` 落地为 SIGTERM 自重启，内存会话失效）；rs 保存仅落盘，由用户经 `POST /api/system/restart`（§5.1）显式重启应用；notebook 按节热应用，无 `restart` 能力（`capabilities.restart=false`，前端不展示重启入口）。
 
 ## 8. 附录 B：本规范取代的旧端点（迁移对照）
 
