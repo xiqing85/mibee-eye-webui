@@ -44,12 +44,16 @@ with sync_playwright() as p:
         if "/api/" in r.url:
             reqs[r.request.method + " " + r.url.replace(BASE, "")] = r.status
 
-    pg.on("response", on_response)
     # 401/403/503 console noise is expected (pre-auth /api/auth/me probe,
-    # setup_required boot state) — only report other errors.
+    # setup_required boot state); ERR_INCOMPLETE_CHUNKED_ENCODING and
+    # ERR_CONNECTION_REFUSED are the self-healed resets on
+    # config_apply=restart devices (a save restarts the whole service and
+    # the page retries until it is back) — only report other errors.
     pg.on("console", lambda m: issues.append(("console-error", m.text[:200]))
           if m.type == "error" and "401" not in m.text and "403" not in m.text
-          and "503" not in m.text else None)
+          and "503" not in m.text and "ERR_INCOMPLETE_CHUNKED_ENCODING" not in m.text
+          and "ERR_CONNECTION_REFUSED" not in m.text
+          else None)
     pg.on("pageerror", lambda e: issues.append(("pageerror", str(e)[:300])))
 
     # -- open; boot decides between first-boot setup and login ------------
@@ -103,6 +107,49 @@ with sync_playwright() as p:
         pg.screenshot(path=str(OUT / "04-cameras.png"), full_page=True)
         pg.locator("#nav .nav-tab[data-view=preview]").first.click()
         pg.wait_for_timeout(4000)
+
+    # -- config round-trip save: re-fill the first editable field with its
+    #    current value and save. Values are unchanged, so this is a no-op on
+    #    the device — but it fails when the editor PUTs a string field as a
+    #    number or otherwise mangles the document (SPEC §5 fidelity). Runs
+    #    BEFORE the live check: a save with config_apply=restart re-applies
+    #    the pipeline, and breaking an active stream here would only add
+    #    reconnect noise. ----------------------------------------------
+    tab = pg.locator("#nav .nav-tab[data-view=settings]")
+    if tab.count() and tab.first.is_visible():
+        tab.first.click()
+        pg.wait_for_timeout(1500)
+        first_input = pg.locator(
+            '#config-form input[type=text], #config-form input[type=number]').first
+        if first_input.count():
+            val = first_input.input_value()
+            if val:
+                first_input.fill(val)
+                pg.wait_for_timeout(400)
+                save = pg.locator("#save-config")
+                if save.is_enabled():
+                    save.click()
+                    pg.wait_for_timeout(1500)
+                    if pg.locator(".toast-error").count():
+                        issues.append(("config", "config round-trip save rejected"))
+                    # restart-dialect devices (config_apply=restart) restart
+                    # the whole service on save and wipe in-memory sessions;
+                    # the stale page can never recover its stream. Reload
+                    # and sign back in for the rest of the walkthrough.
+                    pg.wait_for_timeout(6000)  # service restart window
+                    pg.reload(wait_until="domcontentloaded")
+                    pg.wait_for_timeout(3000)
+                    if pg.locator("#view-login").is_visible():
+                        pg.fill("#login-password", PASSWORD)
+                        pg.click("button[data-i18n=loginBtn]")
+                        pg.wait_for_timeout(3500)
+                    if not pg.locator("#app").is_visible():
+                        issues.append(("config", "re-login after config restart failed"))
+                else:
+                    issues.append(("config", "save disabled on unmodified-value edit"))
+                pg.screenshot(path=str(OUT / "06b-config-roundtrip.png"), full_page=True)
+        pg.locator("#nav .nav-tab[data-view=preview]").first.click()
+        pg.wait_for_timeout(1500)
 
     # -- live view: MSE playhead should advance (or MJPEG img present) ----
     pg.wait_for_timeout(4000)

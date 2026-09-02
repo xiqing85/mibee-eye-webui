@@ -178,6 +178,24 @@ with sync_playwright() as p:
     shot(pg, "14-settings-saved-toast")
     check("settings: fps persisted", pg.input_value('[id="cf-camera.fps"]') == "30")
 
+    # Regression: 20-digit SIP IDs are strings in the config document. The
+    # editor must round-trip them verbatim — converting to float both loses
+    # precision and makes real devices reject the PUT (string expected).
+    pg.fill('[id="cf-gb28181.device_id"]', "34020000001320000099")
+    pg.wait_for_timeout(400)
+    pg.click("#save-config")
+    pg.wait_for_timeout(1000)
+    check("settings: string-ID save accepted",
+          pg.locator(".toast-error").count() == 0,
+          "device rejected the PUT (string field sent as number)")
+    got = pg.evaluate("""async () => {
+      const csrf = document.cookie.match(/csrf-token=([^;]+)/)?.[1] || '';
+      const r = await fetch('/api/config', {headers: {'X-CSRF-Token': csrf}});
+      return (await r.json()).data.gb28181.device_id;
+    }""")
+    check("settings: 20-digit ID round-trips as string",
+          got == "34020000001320000099", f"got: {got!r}")
+
     # ── PTZ: enable in settings, use panel ───────────────────────────
     # The toggle applies instantly (localStorage), outside the config form.
     pg.click("#ptz-toggle-row .switch")
