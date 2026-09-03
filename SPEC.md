@@ -101,7 +101,7 @@ CSRF 契约：所有 `POST/PUT/DELETE/PATCH` 到 `/api/*`（auth 族除外：log
 - `imaging` / `ai` / `ptz` / `hls` / `recording` / `devices` / `webrtc`：对应 Extension 端点存在。
 - `mjpeg` / `mse`：对应流端点存在（前端回落链 MSE → MJPEG → 快照轮询）。
 - `events`：SSE 实际会推送的事件词汇表（§6）。
-- `config_apply`：`"restart"`（写后需进程重启生效）/ `"immediate"`（立即生效），按配置节细化；节未列出时用 `default`。前端应在每个配置节标题处标注其生效时机，并在改动了 `restart` 节后向用户提供重启入口（§5.1）。
+- `config_apply`：`"restart"`（写后需进程重启生效）/ `"immediate"`（立即生效），按配置节细化；节未列出时用 `default`。前端应在每个配置节标题处标注其生效时机，并在改动了 `restart` 节后向用户提供重启入口（§5.1）。可选布尔 `auto`（缺省 `false`）：为 `true` 时（Go 方言）改动 `restart` 节的**保存会使设备自动立即自重启**（保存响应即带 `applied:"restart"`），前端应进入统一重启等待流程（提示→轮询 `/api/health`→恢复后自动重载），而不是展示手动重启入口。
 - `restart`：设备支持 `POST /api/system/restart`（§5.1）。
 
 ## 4. 相机资源（Core）
@@ -236,7 +236,7 @@ MSE 流细则：init segment（`ftyp`+`moov`）只发一次，随后每访问单
 7. **notebook 协议热切换**：`GET /api/protocols/runtime-status` 为 notebook 扩展端点（ONVIF/GB28181/RTMP 运行态），配置本体已并入 `/api/config` 的 `protocols` 节。
 8. **配置文件格式**：Go YAML、Pi Rust TOML、notebook SQLite —— 对前端不可见，仅是 `PUT /api/config` 的落地方式。
 9. **设备级翻转（hflip/vflip）**：翻转烘焙进编码流，对所有观看端（RTSP/ONVIF/GB28181/录像/快照）持久生效，与浏览器端仅显示用的直播翻转按钮（localStorage）相互独立。配置位置方言：rs 为 `/api/config` 的 `camera.hflip`/`camera.vflip`（bool，重启生效）；Go 为同名字段（经 libcamera transform，重启生效），且 Go 的成像端点（§4.5）收到 `VFlip`/`HFlip` 时同样转发落地为 `camera.vflip`/`camera.hflip` 并重启生效（响应附 `applied:"restart"`，为 §4.5「立即生效」的显式例外——rpicam-vid 无运行时翻转通道；值与现值相同的翻转请求为幂等 no-op：不写盘、不重启，响应不带 `applied` 字段），即 Go 端两类翻转是同一持久概念；notebook 为每相机 `PUT /api/cameras/{id}` 的 `config.hflip`/`config.vflip`（相机流 (重)启时生效，前端相机卡片提供翻转按钮并自动 stop→start）。
-10. **配置生效路径**：Go 保存即自动重启服务（`applied:"restart"` 落地为 SIGTERM 自重启，内存会话失效）；rs 保存仅落盘，由用户经 `POST /api/system/restart`（§5.1）显式重启应用；notebook 按节热应用，无 `restart` 能力（`capabilities.restart=false`，前端不展示重启入口）。
+10. **配置生效路径**：Go 保存即自动重启服务（`applied:"restart"` 落地为 SIGTERM 自重启；会话持久化在配置同目录的 `web-sessions.json`，自重启（保存/翻转/§5.1 显式重启）后浏览器免重登无感恢复，显式登出或密码重置仍清空全部会话）；rs 保存仅落盘，由用户经 `POST /api/system/restart`（§5.1）显式重启应用（会话在内存，重启后需重新登录，前端以「重启中」遮罩过渡）；notebook 按节热应用，无 `restart` 能力（`capabilities.restart=false`，前端不展示重启入口）。
 
 ## 8. 附录 B：本规范取代的旧端点（迁移对照）
 
