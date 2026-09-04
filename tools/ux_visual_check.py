@@ -271,6 +271,23 @@ with sync_playwright() as p:
           "online" in pg.get_attribute("#api-badge", "class"))
     check("status: readings leaders", pg.locator("#device-info .reading").count() >= 5)
 
+    # ── Observability (SPEC §3.2): charts + logs + request traces ─────
+    # Charts need ≥2 polls (2s apart) before lines render.
+    pg.wait_for_timeout(5000)
+    check("obs: resource card visible", pg.locator("#obs-card").is_visible())
+    check("obs: 8 chart canvases", pg.locator("#obs-card canvas.obs-chart").count() == 8)
+    check("obs: cpu value rendered", pg.text_content("#obs-cpu-val") != "-")
+    check("obs: log rows rendered", pg.locator("#obs-logs .obs-log").count() >= 1)
+    try:
+        pg.wait_for_selector("#obs-requests tr", timeout=8000)
+        req_rows = True
+    except Exception:
+        req_rows = False
+    check("obs: request rows rendered", req_rows)
+    check("obs: prometheus endpoint public",
+          pg.evaluate("fetch('/metrics').then(r => r.status)") == 200)
+    shot(pg, "16b-status-observability", full=True)
+
     # ── Devices view ──────────────────────────────────────────────────
     pg.click("#nav .nav-tab[data-view=devices]")
     pg.wait_for_timeout(1200)
