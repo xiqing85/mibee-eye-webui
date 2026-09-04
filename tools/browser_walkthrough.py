@@ -7,11 +7,13 @@ fallback), settings + status views, language + theme toggles, logout.
 Screenshots land in tmp/walkthrough-<tag>/.
 
 Usage:
-  tools/browser_walkthrough.py <BASE_URL> <PASSWORD> [USERNAME] [TAG]
+  tools/browser_walkthrough.py <BASE_URL> [PASSWORD] [USERNAME] [TAG]
+
+  PASSWORD may also be supplied via the MIBEE_WEBUI_PASSWORD env var.
 
 Examples:
-  tools/browser_walkthrough.py http://<rs-device-ip>:8088 2022-02-22
-  tools/browser_walkthrough.py https://127.0.0.1:8443 2022-02-22 admin nb
+  tools/browser_walkthrough.py http://<rs-device-ip>:8088 "$MIBEE_WEBUI_PASSWORD"
+  tools/browser_walkthrough.py https://127.0.0.1:8443 "$MIBEE_WEBUI_PASSWORD" admin nb
 
 One-time setup (no node needed):
   python3 -m venv .venv && .venv/bin/pip install playwright
@@ -19,18 +21,22 @@ One-time setup (no node needed):
   .venv/bin/python tools/browser_walkthrough.py ...
 """
 import json
+import os
 import pathlib
 import sys
 
 from playwright.sync_api import sync_playwright
 
 BASE = sys.argv[1].rstrip("/")
-PASSWORD = sys.argv[2]
+PASSWORD = sys.argv[2] if len(sys.argv) > 2 else os.environ.get("MIBEE_WEBUI_PASSWORD", "")
 USERNAME = sys.argv[3] if len(sys.argv) > 3 else "admin"
 TAG = sys.argv[4] if len(sys.argv) > 4 else BASE.split("//")[-1].replace(":", "-").replace("/", "")
 OUT = pathlib.Path(__file__).resolve().parent.parent / "tmp" / f"walkthrough-{TAG}"
 OUT.mkdir(parents=True, exist_ok=True)
 TLS = BASE.startswith("https")
+
+if not PASSWORD:
+    sys.exit("password required: pass it as argv[2] or set MIBEE_WEBUI_PASSWORD")
 
 issues = []
 

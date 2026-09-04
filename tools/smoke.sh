@@ -4,16 +4,19 @@
 # Usage:
 #   tools/smoke.sh <BASE_URL> [PASSWORD] [USERNAME]
 #
+# PASSWORD may also be supplied via the MIBEE_WEBUI_PASSWORD env var —
+# keep real credentials out of shell history and command examples.
+#
 # Examples:
-#   tools/smoke.sh http://<rs-device-ip>:8088 2022-02-22          # raspi-rs
-#   tools/smoke.sh http://<go-device-ip>:8088 2022-02-22          # raspi-go
-#   tools/smoke.sh https://127.0.0.1:8443 2022-02-22 admin       # notebook (TLS, self-signed)
+#   tools/smoke.sh http://<rs-device-ip>:8088 "$MIBEE_WEBUI_PASSWORD"   # raspi-rs
+#   tools/smoke.sh http://<go-device-ip>:8088 "$MIBEE_WEBUI_PASSWORD"   # raspi-go
+#   tools/smoke.sh https://127.0.0.1:8443 "$MIBEE_WEBUI_PASSWORD" admin # notebook (TLS, self-signed)
 #
 # No dependencies beyond curl + a cookie jar in ${TMPDIR}. Exit 0 = all pass.
 set -uo pipefail
 
 BASE=${1:?usage: smoke.sh <BASE_URL> [PASSWORD] [USERNAME]}
-PW=${2:-}
+PW=${2:-${MIBEE_WEBUI_PASSWORD:-}}
 USER=${3:-admin}
 CURL="curl -sk -m 8"
 JAR=$(mktemp)
