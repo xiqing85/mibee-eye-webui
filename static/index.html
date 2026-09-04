@@ -258,6 +258,36 @@
           </div>
         </div>
       </div>
+      <div class="card hidden obs-card" id="obs-card">
+        <h3><svg class="icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 20h18M6 16v-5M10 16V8M14 16v-8M18 16v-3"/></svg><span data-i18n="obsTitle">Resource Monitor</span></h3>
+        <p class="obs-group-label" data-i18n="obsSystem">System</p>
+        <div class="obs-grid">
+          <div class="obs-cell"><div class="obs-cell-head"><span data-i18n="obsCpu">CPU</span><span class="obs-val" id="obs-cpu-val">-</span></div><canvas id="obs-cpu" class="obs-chart" aria-hidden="true"></canvas></div>
+          <div class="obs-cell"><div class="obs-cell-head"><span data-i18n="obsMem">Memory</span><span class="obs-val" id="obs-mem-val">-</span></div><canvas id="obs-mem" class="obs-chart" aria-hidden="true"></canvas></div>
+          <div class="obs-cell"><div class="obs-cell-head"><span data-i18n="obsDisk">Disk</span><span class="obs-val mono" id="obs-disk-path"></span><span class="obs-val" id="obs-disk-val">-</span></div><canvas id="obs-disk" class="obs-chart" aria-hidden="true"></canvas></div>
+          <div class="obs-cell"><div class="obs-cell-head"><span data-i18n="obsNet">Network</span><span class="obs-val" id="obs-net-val">-</span></div><canvas id="obs-net" class="obs-chart" aria-hidden="true"></canvas></div>
+        </div>
+        <p class="obs-group-label" data-i18n="obsProcess">This Service</p>
+        <div class="obs-grid">
+          <div class="obs-cell"><div class="obs-cell-head"><span data-i18n="obsCpu">CPU</span><span class="obs-val" id="obs-pcpu-val">-</span></div><canvas id="obs-pcpu" class="obs-chart" aria-hidden="true"></canvas></div>
+          <div class="obs-cell"><div class="obs-cell-head"><span data-i18n="obsRss">Memory</span><span class="obs-val" id="obs-prss-val">-</span></div><canvas id="obs-prss" class="obs-chart" aria-hidden="true"></canvas></div>
+          <div class="obs-cell"><div class="obs-cell-head"><span data-i18n="obsStore">Storage</span><span class="obs-val" id="obs-pstore-val">-</span></div><canvas id="obs-pstore" class="obs-chart" aria-hidden="true"></canvas></div>
+          <div class="obs-cell"><div class="obs-cell-head"><span data-i18n="obsTraffic">Traffic</span><span class="obs-val" id="obs-pnet-val">-</span></div><canvas id="obs-pnet" class="obs-chart" aria-hidden="true"></canvas></div>
+        </div>
+      </div>
+      <div class="obs-panes">
+        <div class="card hidden" id="obs-logs-card">
+          <h3><svg class="icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h16M4 10h16M4 15h10M4 20h7"/></svg><span data-i18n="obsLogs">Recent Logs</span></h3>
+          <ul class="obs-logs" id="obs-logs"></ul>
+        </div>
+        <div class="card hidden" id="obs-requests-card">
+          <h3><svg class="icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5v4.5l3 2"/></svg><span data-i18n="obsRequests">Request Traces</span></h3>
+          <table class="obs-requests">
+            <thead><tr><th data-i18n="obsReqId">ID</th><th data-i18n="obsReqMethod">Method</th><th data-i18n="obsReqPath">Path</th><th data-i18n="obsReqStatus">Status</th><th data-i18n="obsReqDuration">Duration</th></tr></thead>
+            <tbody id="obs-requests"></tbody>
+          </table>
+        </div>
+      </div>
     </div>
 
     <!-- ===== View: Devices (devices capability only) ===== -->

@@ -91,9 +91,88 @@ CAPS = {
                                                         # demonstrates the immediate badge on a real config section
                                                         "logging": "immediate"}},
     "restart": True,
+    "observability": {"metrics": True, "logs": True, "requests": True},
 }
 
 AUTH_EXEMPT = {"/api/auth/login", "/api/auth/setup", "/api/auth/logout"}
+
+# ── observability mock state ─────────────────────────────────────────
+_METRICS_PREV = {"ts": None, "rx": None, "tx": None}
+_LOG_SEQ = iter(range(1, 10 ** 9))
+_REQ_SEQ = iter(range(1, 10 ** 9))
+
+
+def _metrics_summary():
+    """Synthetic but self-consistent resource snapshot with 2s-sampler rates."""
+    now = time.time()
+    t = now / 2.0
+    rx = int(8_000_000 * (1 + math.sin(t / 7)) + now * 1024)
+    tx = int(1_500_000 * (1 + math.cos(t / 5)) + now * 256)
+    prev = _METRICS_PREV
+    dt = 2.0 if prev["ts"] is None else max(now - prev["ts"], 0.001)
+    rx_rate = 0.0 if prev["rx"] is None else max((rx - prev["rx"]) / dt, 0.0)
+    tx_rate = 0.0 if prev["tx"] is None else max((tx - prev["tx"]) / dt, 0.0)
+    prev.update(ts=now, rx=rx, tx=tx)
+    return {
+        "ts": int(now),
+        "interval_ms": 2000,
+        "system": {
+            "cpu_percent": round(18 + 14 * math.sin(t / 11) + 4 * math.sin(t * 3.1), 1),
+            "load_avg": [round(0.4 + 0.2 * math.sin(t / 30), 2) for _ in range(3)],
+            "memory": {"total": 4 * 1024 ** 3, "used": int(1.4 * 1024 ** 3),
+                       "available": int(2.6 * 1024 ** 3)},
+            "disks": [
+                {"path": "/", "total": 60 * 1024 ** 3, "used": 22 * 1024 ** 3,
+                 "free": 38 * 1024 ** 3},
+                {"path": "/mnt/data", "total": 240 * 1024 ** 3, "used": 8 * 1024 ** 3,
+                 "free": 232 * 1024 ** 3},
+            ],
+            "network": {"rx_bytes": rx, "tx_bytes": tx,
+                        "rx_rate": round(rx_rate, 1), "tx_rate": round(tx_rate, 1)},
+        },
+        "process": {
+            "cpu_percent": round(9 + 5 * math.sin(t / 9), 1),
+            "rss_bytes": 96 * 1024 ** 2,
+            "open_fds": 37,
+            "uptime": int(now - START),
+            "io_read_bytes": 123_456_789, "io_write_bytes": 8_765_432,
+            "storage_bytes": 7_800_000_000,
+            "traffic": {"http_rx_bytes": 45_000, "http_tx_bytes": 2_400_000,
+                        "rtsp_tx_bytes": 90_000_000, "gb28181_tx_bytes": 31_000_000},
+        },
+    }
+
+
+def _log_entries():
+    level = "info"
+    target = "gb28181_rs::server"
+    msgs = [
+        ("info", "gb28181_rs::server", "gb28181: registration refreshed with platform"),
+        ("info", "mibee_eye::recording", "recording: segment closed (600s, 4879 frames)"),
+        ("warn", "mibee_eye::ai", "ai: guardrail skip — memory above soft cap"),
+        ("error", "mibee_eye::camera", "camera: capture poll timeout, reopening device"),
+        ("debug", "mibee_eye::web", "snapshot served (65 KB)"),
+    ]
+    out = []
+    for _ in range(6):
+        lvl, tgt, msg = msgs[next(_LOG_SEQ) % len(msgs)]
+        out.append({"ts": int(time.time()) - next(_LOG_SEQ) * 3, "level": lvl,
+                    "target": tgt, "message": msg, "request_id": None})
+    return out
+
+
+def _request_entries():
+    routes = [("GET", "/api/status", 200), ("GET", "/api/cameras/0/stream.mse", 200),
+              ("GET", "/api/metrics/summary", 200), ("POST", "/api/auth/login", 401),
+              ("GET", "/api/detections", 200)]
+    out = []
+    for _ in range(8):
+        m, p, s = routes[next(_REQ_SEQ) % len(routes)]
+        out.append({"id": format(next(_REQ_SEQ), "06x"), "method": m, "path": p,
+                    "status": s, "duration_ms": round(0.4 + (next(_REQ_SEQ) % 90) / 10, 1),
+                    "ts": int(time.time()) - next(_REQ_SEQ)})
+    return out
+
 
 
 def sse_broadcast(event, payload):
@@ -181,6 +260,22 @@ class Handler(BaseHTTPRequestHandler):
             if path in ("/api/health", "/api/auth/me") or self.authed():
                 return self.get_api(path)
             return self.err("unauthorized", "not signed in", 401)
+        if path == "/metrics":
+            # Public Prometheus exposition (SPEC §3.2).
+            m = _metrics_summary()
+            body = (
+                "# HELP mibee_eye_system_cpu_percent System CPU usage percent\n"
+                "# TYPE mibee_eye_system_cpu_percent gauge\n"
+                f"mibee_eye_system_cpu_percent {m['system']['cpu_percent']}\n"
+                "# HELP mibee_eye_process_rss_bytes Process resident set size\n"
+                "# TYPE mibee_eye_process_rss_bytes gauge\n"
+                f"mibee_eye_process_rss_bytes {m['process']['rss_bytes']}\n"
+            )
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            return self.wfile.write(body.encode())
         if path == "/" or path == "/index.html":
             return self.serve_file("index.html", "text/html; charset=utf-8")
         if path == "/smoke":
@@ -307,6 +402,12 @@ class Handler(BaseHTTPRequestHandler):
             return self.ok([{"name": "default", "supported_configs": [{"channels": 2}]}])
         if path == "/api/events":
             return self.serve_sse()
+        if path == "/api/metrics/summary":
+            return self.ok(_metrics_summary())
+        if path == "/api/logs":
+            return self.ok({"entries": _log_entries()})
+        if path == "/api/requests":
+            return self.ok({"entries": _request_entries()})
         self.send_error(404)
 
     # ── API: POST ───────────────────────────────────────────────────
