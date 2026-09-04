@@ -611,12 +611,15 @@ def main():
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 8090
     threading.Thread(target=ai_thread, daemon=True).start()
     server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
-    print(f"mock SPEC server on http://127.0.0.1:{port} (first boot: setup flow, admin/12345678)")
+    print(f"mock SPEC server on http://127.0.0.1:{port} (first boot: setup flow — the password is whatever you set)")
     STATE["setup_done"] = False
     if PREAUTH:
         # Headless smoke: act as an already-configured, signed-in device.
+        # No default credential: take the password from the env or generate
+        # a random one (printed below) for the /api/auth/login path.
         STATE["setup_done"] = True
-        STATE["password"] = "12345678"
+        STATE["password"] = os.environ.get("MIBEE_WEBUI_PASSWORD") or secrets.token_urlsafe(12)
+        print(f"PREAUTH mode: mock login password is {STATE['password']!r}")
     server.serve_forever()
 
 

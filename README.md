@@ -24,7 +24,7 @@ MiBee 摄像头设备的**统一 Web 前端 + Web API 规范**唯一真源（sin
 ## 开发流程
 
 ```bash
-make mock        # http://127.0.0.1:8090 — 首启会走 setup 流程（admin/12345678）
+make mock        # http://127.0.0.1:8090 — 首启走 setup 流程，密码自行设置（MOCK_PREAUTH=1 时取 MIBEE_WEBUI_PASSWORD 或随机生成）
 make sync-rs     # 改完 static/ 后同步进设备仓库（再走各仓库构建/测试）
 ```
 
