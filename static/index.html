@@ -107,6 +107,28 @@
         <div class="field hidden" id="ai-model-field">
           <label for="ai-model-select" data-i18n="aiModel">AI Model</label>
           <select id="ai-model-select" class="camera-select"></select>
+          <button type="button" id="ai-model-upload" class="tool-btn hidden" data-i18n="uploadModel" title="Upload">+</button>
+          <input type="file" id="ai-model-file" accept=".onnx" class="hidden">
+        </div>
+        <!-- Model upload (extension: ai_upload, SPEC §4.6) -->
+        <div class="field hidden" id="ai-upload-field">
+          <label for="ai-upload-family" data-i18n="aiUploadFamily">Type</label>
+          <select id="ai-upload-family" class="camera-select">
+            <option value="nanodet">nanodet</option>
+            <option value="yolox">yolox</option>
+          </select>
+          <input type="file" id="ai-upload-file" accept=".onnx" class="hidden">
+          <button type="button" id="ai-upload-btn" class="tool-btn" data-i18n-title="aiUpload">↑ .onnx</button>
+        </div>
+        <!-- Model upload (extension: ai_upload, SPEC §4.6) -->
+        <div class="field hidden" id="ai-upload-field">
+          <label for="ai-upload-family" data-i18n="aiUploadFamily">Family</label>
+          <select id="ai-upload-family" class="camera-select">
+            <option value="nanodet">nanodet</option>
+            <option value="yolox">yolox</option>
+          </select>
+          <button type="button" id="ai-upload-btn" class="btn" data-i18n="aiUploadBtn">Upload</button>
+          <input type="file" id="ai-upload-file" accept=".onnx" class="hidden">
         </div>
       </div>
       <div class="stream-wrapper">
