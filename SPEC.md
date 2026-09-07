@@ -82,6 +82,7 @@ CSRF 契约：所有 `POST/PUT/DELETE/PATCH` 到 `/api/*`（auth 族除外：log
   "imaging": false,
   "ai": false,
   "ai_models": false,
+  "ai_upload": false,
   "ptz": false,
   "hls": false,
   "recording": false,
@@ -102,6 +103,7 @@ CSRF 契约：所有 `POST/PUT/DELETE/PATCH` 到 `/api/*`（auth 族除外：log
 - `camera_control`：支持 start/stop（§4.3）。
 - `imaging` / `ai` / `ptz` / `hls` / `recording` / `devices` / `webrtc`：对应 Extension 端点存在。
 - `ai_models`：设备带模型注册表并支持运行时热切换（§4.6 的模型清单 / 激活端点）。仅在 `ai:true` 时有意义；缺省视为 `false`，前端隐藏模型切换 UI。
+- `ai_upload`：设备允许运行时上传/删除模型文件（§4.6 的 POST/DELETE）。仅在 `ai_models:true` 时有意义；缺省视为 `false`。设备侧以配置开关（如 `ai.allow_upload`，默认关）控制——模型文件是对推理引擎的不可信输入，生产环境应仅在需要时开启。
 - `mjpeg` / `mse`：对应流端点存在（前端回落链 MSE → MJPEG → 快照轮询）。
 - `events`：SSE 实际会推送的事件词汇表（§6）。
 - `config_apply`：`"restart"`（写后需进程重启生效）/ `"immediate"`（立即生效），按配置节细化；节未列出时用 `default`。前端应在每个配置节标题处标注其生效时机，并在改动了 `restart` 节后向用户提供重启入口（§5.1）。可选布尔 `auto`（缺省 `false`）：为 `true` 时（Go 方言）改动 `restart` 节的**保存会使设备自动立即自重启**（保存响应即带 `applied:"restart"`），前端应进入统一重启等待流程（提示→轮询 `/api/health`→恢复后自动重载），而不是展示手动重启入口。
@@ -227,8 +229,10 @@ MSE 流细则：init segment（`ftyp`+`moov`）只发一次，随后每访问单
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | GET | `/api/detections` | `{"detections":[{"label","confidence","bbox":[x,y,w,h]}],"model","timestamp"}`；未启用时 `{"enabled":false}` |
-| GET | `/api/ai/models` | 模型注册表（能力 `ai_models`）：`{"active":"<id>","models":[{"id","family","input":<int>,"source":"builtin"\|"custom","available":bool}]}`。`available:false`（模型文件缺失/不可加载）的条目前端应禁选 |
+| GET | `/api/ai/models` | 模型注册表（能力 `ai_models`）：`{"active":"<id>","models":[{"id","family","input":<int>,"source":"builtin"\|"custom"\|"uploaded","available":bool}]}`。`available:false`（模型文件缺失/不可加载）的条目前端应禁选。能力 `ai_upload` 时另附 `"upload":{"allowed":bool,"max_bytes":<int>}` |
 | POST | `/api/ai/models/{id}/activate` | 运行时热切换模型：`{"active":"<id>","applied":"immediate"}`。未知 `id` → 404；`available:false` → 409；加载失败**回滚保持旧模型**并 500。成功后写回 `/api/config` 的 `ai.model` 并广播 `ai_model_changed` |
+| POST | `/api/ai/models/{id}` | 上传模型（能力 `ai_upload`）：multipart 表单 `family`（`nanodet`\|`yolox`…，须为该设备已实现的解码族）+ `file`（ONNX 二进制）；`id` 须匹配 `^[a-z0-9][a-z0-9-]{0,63}$`。设备**必须先完整加载验证**（会话构建 + 族形状校验）通过后再落盘入册 → `201 {"id","family","input","source":"uploaded"}`；验证失败 400（文件删除不留痕）。id 已存在 → 409；超 `max_bytes` → 413；`family`/id 非法 → 400；能力关闭 → 501 |
+| DELETE | `/api/ai/models/{id}` | 移除上传模型（仅 `source:"uploaded"`）：204。内置/自定义条目 → 409；该模型正在运行 → 409；未知 → 404。删除后条目从清单与磁盘移除 |
 
 **bbox 坐标系**：`[x, y, w, h]` 为整数**视频像素**，原点左上角，坐标系为相机原生流分辨率（即 `/api/cameras` 返回的流分辨率，如 1280×720）。不是模型输入分辨率，也不是 0..1 归一化值——设备必须把模型空间坐标映射回视频像素空间后再返回（模型内部将 16:9 帧拉伸进正方形输入时，x/y 轴缩放比不同，映射不可省略）。
 

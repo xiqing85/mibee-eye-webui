@@ -79,7 +79,8 @@ STATE = {
          "source": "builtin", "available": True},
         {"id": "yolox-s-640", "family": "yolox", "input": 640,
          "source": "builtin", "available": False},
-    ]},
+    ],
+    "upload": {"allowed": True, "max_bytes": 33554432}},
     "sse_queues": [],
 }
 
@@ -93,6 +94,7 @@ CAPS = {
     "imaging": True,
     "ai": True,
     "ai_models": True,
+    "ai_upload": True,
     "ptz": True,
     "hls": False,
     "recording": True,
@@ -355,6 +357,22 @@ class Handler(BaseHTTPRequestHandler):
             cid = path.split("/")[3]
             STATE["cameras"] = [c for c in STATE["cameras"] if c["id"] != cid]
             return self.send_json({"ok": True, "data": {"status": "ok"}}, 200)
+        # Delete an uploaded model (SPEC §4.6).
+        if path.startswith("/api/ai/models/"):
+            model_id = path[len("/api/ai/models/"):]
+            models = STATE["ai_models"]["models"]
+            entry = next((m for m in models if m["id"] == model_id), None)
+            if entry is None:
+                return self.err("not_found", "unknown model id", 404)
+            if entry["source"] != "uploaded":
+                return self.err("conflict", "builtin models cannot be deleted", 409)
+            if STATE["ai_models"]["active"] == model_id:
+                return self.err("conflict", "cannot delete the active model", 409)
+            STATE["ai_models"]["models"] = [m for m in models if m["id"] != model_id]
+            self.send_response(204)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
         self.send_error(404)
 
     # ── API: GET ────────────────────────────────────────────────────
@@ -430,7 +448,12 @@ class Handler(BaseHTTPRequestHandler):
 
     # ── API: POST ───────────────────────────────────────────────────
     def post_api(self, path):
-        body = self.body_json()
+        # Multipart bodies (model upload) must stay unread for their own
+        # parser; JSON bodies are consumed here as before.
+        if "multipart/form-data" in (self.headers.get("Content-Type") or ""):
+            body = {}
+        else:
+            body = self.body_json()
         if path == "/api/auth/setup":
             if STATE["setup_done"]:
                 return self.err("bad_request", "already configured", 400)
@@ -465,10 +488,37 @@ class Handler(BaseHTTPRequestHandler):
             STATE["sessions"].clear()
             token, csrf = self.start_session()
             return self.ok({"username": STATE["username"]}, extra_headers=self.cookie_headers(token, csrf))
-        parts = path.split("/")
-        if (path.startswith("/api/ai/models/") and len(parts) == 6
-                and parts[5] == "activate"):
-            model_id = parts[4]
+        # Upload (SPEC §4.6): multipart family+file → uploaded entry.
+        if path.startswith("/api/ai/models/") and not path.endswith("/activate"):
+            import re as _re
+            model_id = path[len("/api/ai/models/"):]
+            if not _re.fullmatch(r"[a-z0-9][a-z0-9-]{0,63}", model_id):
+                return self.err("bad_request", "invalid model id", 400)
+            if any(m["id"] == model_id for m in STATE["ai_models"]["models"]):
+                return self.err("conflict", "model id already exists", 409)
+            ctype = self.headers.get("Content-Type", "")
+            m = _re.search(r'boundary="?([^";]+)"?', ctype)
+            if not m or "multipart" not in ctype:
+                return self.err("bad_request", "multipart form required (family+file)", 400)
+            body = self.rfile.read(int(self.headers.get("Content-Length", 0)))
+            chunks = body.split(b"--" + m.group(1).encode())
+            family, has_file = None, False
+            for part in chunks:
+                if b'form-data; name="family"' in part:
+                    family = part.split(b"\r\n\r\n", 1)[1].split(b"\r\n")[0].decode()
+                if b'name="file"' in part:
+                    has_file = len(part.split(b"\r\n\r\n", 1)[-1]) > 4
+            if family not in ("nanodet", "yolox"):
+                return self.err("bad_request", "family must be nanodet or yolox", 400)
+            if not has_file:
+                return self.err("bad_request", "model failed validation: not an ONNX graph", 400)
+            STATE["ai_models"]["models"].append(
+                {"id": model_id, "family": family, "input": 416,
+                 "source": "uploaded", "available": True})
+            return self.ok({"id": model_id, "family": family, "input": 416,
+                            "source": "uploaded", "available": True}, 201)
+        if path.startswith("/api/ai/models/") and path.endswith("/activate"):
+            model_id = path.split("/")[4]
             entry = next((m for m in STATE["ai_models"]["models"]
                           if m["id"] == model_id), None)
             if entry is None:
