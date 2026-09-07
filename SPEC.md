@@ -81,6 +81,7 @@ CSRF 契约：所有 `POST/PUT/DELETE/PATCH` 到 `/api/*`（auth 族除外：log
   "camera_control": false,
   "imaging": false,
   "ai": false,
+  "ai_models": false,
   "ptz": false,
   "hls": false,
   "recording": false,
@@ -100,6 +101,7 @@ CSRF 契约：所有 `POST/PUT/DELETE/PATCH` 到 `/api/*`（auth 族除外：log
 - `camera_management`：支持相机 CRUD（§4.2）。
 - `camera_control`：支持 start/stop（§4.3）。
 - `imaging` / `ai` / `ptz` / `hls` / `recording` / `devices` / `webrtc`：对应 Extension 端点存在。
+- `ai_models`：设备带模型注册表并支持运行时热切换（§4.6 的模型清单 / 激活端点）。仅在 `ai:true` 时有意义；缺省视为 `false`，前端隐藏模型切换 UI。
 - `mjpeg` / `mse`：对应流端点存在（前端回落链 MSE → MJPEG → 快照轮询）。
 - `events`：SSE 实际会推送的事件词汇表（§6）。
 - `config_apply`：`"restart"`（写后需进程重启生效）/ `"immediate"`（立即生效），按配置节细化；节未列出时用 `default`。前端应在每个配置节标题处标注其生效时机，并在改动了 `restart` 节后向用户提供重启入口（§5.1）。可选布尔 `auto`（缺省 `false`）：为 `true` 时（Go 方言）改动 `restart` 节的**保存会使设备自动立即自重启**（保存响应即带 `applied:"restart"`），前端应进入统一重启等待流程（提示→轮询 `/api/health`→恢复后自动重载），而不是展示手动重启入口。
@@ -225,8 +227,12 @@ MSE 流细则：init segment（`ftyp`+`moov`）只发一次，随后每访问单
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | GET | `/api/detections` | `{"detections":[{"label","confidence","bbox":[x,y,w,h]}],"model","timestamp"}`；未启用时 `{"enabled":false}` |
+| GET | `/api/ai/models` | 模型注册表（能力 `ai_models`）：`{"active":"<id>","models":[{"id","family","input":<int>,"source":"builtin"\|"custom","available":bool}]}`。`available:false`（模型文件缺失/不可加载）的条目前端应禁选 |
+| POST | `/api/ai/models/{id}/activate` | 运行时热切换模型：`{"active":"<id>","applied":"immediate"}`。未知 `id` → 404；`available:false` → 409；加载失败**回滚保持旧模型**并 500。成功后写回 `/api/config` 的 `ai.model` 并广播 `ai_model_changed` |
 
 **bbox 坐标系**：`[x, y, w, h]` 为整数**视频像素**，原点左上角，坐标系为相机原生流分辨率（即 `/api/cameras` 返回的流分辨率，如 1280×720）。不是模型输入分辨率，也不是 0..1 归一化值——设备必须把模型空间坐标映射回视频像素空间后再返回（模型内部将 16:9 帧拉伸进正方形输入时，x/y 轴缩放比不同，映射不可省略）。
+
+**模型标识**：`/api/detections` 响应与 `ai_model_changed` 事件中的 `"model"` 为**模型 id**（即 `/api/ai/models` 条目的 `id`，如 `nanodet-plus-m-320`），不是文件路径。`/api/config` 的 `ai.model` 字段是启动时加载的模型（`PUT /api/config` 直接改它为 restart 语义，重启后生效）；运行时不重启切换必须走 activate 端点。
 
 ### 4.7 PTZ（Extension：`ptz`，虚拟或实云台）
 
@@ -274,6 +280,7 @@ MSE 流细则：init segment（`ftyp`+`moov`）只发一次，随后每访问单
 | `camera_offlined` | `{"camera_id"}` | notebook 热插拔 |
 | `param_changed` | `{"camera_id","name","value"}` | imaging 参数被任意客户端修改 |
 | `ai_detection` | `{"camera_id","detections":[{"label","confidence","bbox"}],"frame_number"?}` | AI 推理帧；bbox 坐标系同 §4.6（视频像素空间） |
+| `ai_model_changed` | `{"camera_id","model"}` | 模型热切换完成（§4.6 activate 端点）；`model` 为新模型 id |
 | `recording` | `{"camera_id","active"}` | 录像启停 |
 | `status` | `{"uptime",...}` | 周期状态摘要（可选） |
 

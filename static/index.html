@@ -103,6 +103,11 @@
           <label for="live-camera-select" data-i18n="liveCamera">Live</label>
           <select id="live-camera-select" class="camera-select"></select>
         </div>
+        <!-- AI model picker (extension: ai + ai_models, SPEC §4.6) -->
+        <div class="field hidden" id="ai-model-field">
+          <label for="ai-model-select" data-i18n="aiModel">AI Model</label>
+          <select id="ai-model-select" class="camera-select"></select>
+        </div>
       </div>
       <div class="stream-wrapper">
         <video id="stream-video" autoplay muted playsinline style="width:100%;height:100%;object-fit:contain"></video>
