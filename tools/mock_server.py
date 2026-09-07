@@ -47,7 +47,8 @@ STATE = {
                     "register_interval_secs": 3600, "heartbeat_interval_secs": 60,
                     "heartbeat_timeout_count": 3},
         "logging": {"level": "info"},
-        "features": {"ai": {"enabled": False, "model_path": "models/nanodet-m.onnx",
+        "features": {"ai": {"enabled": False, "model": "nanodet-plus-m-320",
+                            "model_path": "models/nanodet-m.onnx",
                             "cpu_cores": [2, 3]}},
     },
     "imaging_params": {"Brightness": 0.0, "Contrast": 1.0, "Saturation": 1.0,
@@ -65,7 +66,17 @@ STATE = {
     # bbox is in video pixels (SPEC §4.6); the mock camera streams 1280×720.
     "detections": {"detections": [
         {"label": "person", "confidence": 0.87, "bbox": [256, 216, 192, 288]},
-    ], "model": "mock-yolo", "timestamp": 0},
+    ], "model": "nanodet-plus-m-320", "timestamp": 0},
+    # Model registry (SPEC §4.6): the 416 entry demos the switchable state,
+    # the third entry an available:false one the UI must disable.
+    "ai_models": {"active": "nanodet-plus-m-320", "models": [
+        {"id": "nanodet-plus-m-320", "family": "nanodet", "input": 320,
+         "source": "builtin", "available": True},
+        {"id": "nanodet-plus-m-416", "family": "nanodet", "input": 416,
+         "source": "builtin", "available": True},
+        {"id": "yolox-nano-320", "family": "yolox", "input": 320,
+         "source": "builtin", "available": False},
+    ]},
     "sse_queues": [],
 }
 
@@ -78,6 +89,7 @@ CAPS = {
     "camera_control": True,
     "imaging": True,
     "ai": True,
+    "ai_models": True,
     "ptz": True,
     "hls": False,
     "recording": True,
@@ -86,7 +98,7 @@ CAPS = {
     "mse": True,
     "webrtc": False,
     "events": ["camera_added", "camera_offlined", "param_changed", "ai_detection",
-               "recording", "status"],
+               "ai_model_changed", "recording", "status"],
     "config_apply": {"default": "restart", "sections": {"imaging": "immediate",
                                                         # demonstrates the immediate badge on a real config section
                                                         "logging": "immediate"}},
@@ -392,6 +404,9 @@ class Handler(BaseHTTPRequestHandler):
             return self.ok(STATE["ptz"])
         if path == "/api/detections":
             return self.ok(STATE["detections"])
+        if path == "/api/ai/models":
+            import copy
+            return self.ok(copy.deepcopy(STATE["ai_models"]))
         if path == "/api/devices/video":
             return self.ok([{"index": 0, "name": "Mock USB Cam", "formats": ["1920x1080", "1280x720"]},
                             {"index": 1, "name": "Mock CSI Cam", "formats": ["1640x1232"]}])
@@ -447,6 +462,21 @@ class Handler(BaseHTTPRequestHandler):
             STATE["sessions"].clear()
             token, csrf = self.start_session()
             return self.ok({"username": STATE["username"]}, extra_headers=self.cookie_headers(token, csrf))
+        parts = path.split("/")
+        if (path.startswith("/api/ai/models/") and len(parts) == 6
+                and parts[5] == "activate"):
+            model_id = parts[4]
+            entry = next((m for m in STATE["ai_models"]["models"]
+                          if m["id"] == model_id), None)
+            if entry is None:
+                return self.err("not_found", f"unknown model id: {model_id}", 404)
+            if not entry["available"]:
+                return self.err("conflict", "model file not available", 409)
+            STATE["ai_models"]["active"] = model_id
+            STATE["detections"]["model"] = model_id
+            STATE["config"]["features"]["ai"]["model"] = model_id
+            sse_broadcast("ai_model_changed", {"camera_id": "0", "model": model_id})
+            return self.ok({"active": model_id, "applied": "immediate"})
         if path == "/api/cameras":
             cam = {"id": secrets.token_hex(4), "name": body.get("name", "camera"),
                    "status": "idle", "camera_type": body.get("camera_type", "usb"),
