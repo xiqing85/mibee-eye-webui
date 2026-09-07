@@ -67,14 +67,17 @@ STATE = {
     "detections": {"detections": [
         {"label": "person", "confidence": 0.87, "bbox": [256, 216, 192, 288]},
     ], "model": "nanodet-plus-m-320", "timestamp": 0},
-    # Model registry (SPEC §4.6): the 416 entry demos the switchable state,
-    # the third entry an available:false one the UI must disable.
+    # Model registry (SPEC §4.6): mirrors the device registry — two
+    # NanoDet exports plus the YOLOX cross-family decoder, and one
+    # available:false entry the UI must disable.
     "ai_models": {"active": "nanodet-plus-m-320", "models": [
         {"id": "nanodet-plus-m-320", "family": "nanodet", "input": 320,
          "source": "builtin", "available": True},
         {"id": "nanodet-plus-m-416", "family": "nanodet", "input": 416,
          "source": "builtin", "available": True},
-        {"id": "yolox-nano-320", "family": "yolox", "input": 320,
+        {"id": "yolox-nano-416", "family": "yolox", "input": 416,
+         "source": "builtin", "available": True},
+        {"id": "yolox-s-640", "family": "yolox", "input": 640,
          "source": "builtin", "available": False},
     ]},
     "sse_queues": [],
