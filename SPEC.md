@@ -302,6 +302,7 @@ MSE 流细则：init segment（`ftyp`+`moov`）只发一次，随后每访问单
 10. **配置生效路径**：Go 保存即自动重启服务（`applied:"restart"` 落地为 SIGTERM 自重启；会话持久化在配置同目录的 `web-sessions.json`，自重启（保存/翻转/§5.1 显式重启）后浏览器免重登无感恢复，显式登出或密码重置仍清空全部会话）；rs 保存仅落盘，由用户经 `POST /api/system/restart`（§5.1）显式重启应用（会话同样持久化到配置同目录的 `web-sessions.json`，重启后保持登录）；notebook 按节热应用，无 `restart` 能力（`capabilities.restart=false`，前端不展示重启入口）。
 11. **可观测（§3.2）实现方言**：Go 保留 9100 独立 Prometheus 端口（历史抓取配置），同时 `/metrics` 挂在 Web 端口；rs 仅 Web 端口 `/metrics`。日志环形缓冲覆盖 log 门面（Go 为 slog 全量、rs 为协议库 log 门面）；rs 产品代码的历史 `println!` 输出仅进 journald 不进 `/api/logs`。请求追踪覆盖 Web API 面；RTSP/ONVIF/GB28181 独立端口面以 `/metrics` 计数器覆盖。notebook 后端尚未实现 §3.2（`capabilities.observability` 缺省，前端自动隐藏资源监控区）。
 12. **AI 检测（§4.6）方言**：notebook 为多相机设备，除规范端点 `GET /api/detections`（返回最近一次推理的相机结果）外，另提供逐相机扩展端点 `GET /api/cameras/{id}/detections`（响应结构同 §4.6：`{"detections","model","timestamp"}`，bbox 同为该相机原生流分辨率的视频像素坐标）。`ai_detection` SSE 事件（§6）的 `camera_id` 在 notebook 上为真实相机 UUID；Pi 设备恒为 `"0"`。**模型注册表（§4.6）**：notebook 的内置注册表只含 NanoDet 族条目（其解码器未实现 YOLOX，上传 `family` 仅接受 `nanodet`）；`ai_model_changed` 的 `camera_id` 为 `"all"`（设备级切换）；激活选择持久化在设备数据库 `ai.model` 设置（TOML `[ai]` 仅引导默认），重启后自动覆盖。
+13. **notebook GB35114 A 级子树**：`protocols.gb28181.gb35114`（`enabled`、`device_cert_file`、`device_key_file`、`platform_cert_file`、`server_id`），随 `PUT /api/config` 深合并热应用（嵌套节同样拒绝未知字段、兼容字符串布尔）。证书缺失/无效时 GB28181 拒绝启动（fail-closed），Web 与其他协议不受影响。
 
 ## 8. 附录 B：本规范取代的旧端点（迁移对照）
 
