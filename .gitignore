@@ -2,3 +2,20 @@ tmp/
 __pycache__/
 *.pyc
 .venv/
+
+# Local agent context + hygiene (2026-09-10, enforced by tools/check-repo-hygiene.sh)
+AGENTS.md
+.omo/
+.codegraph/
+/-*
+.env
+.env.*
+!.env.example
+*.pcap
+*.pcapng
+*.sqlite
+*.sqlite3
+*.db
+*.log
+config.local.*
+cookies.txt
