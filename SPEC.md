@@ -86,6 +86,7 @@ CSRF 契约：所有 `POST/PUT/DELETE/PATCH` 到 `/api/*`（auth 族除外：log
   "ptz": false,
   "hls": false,
   "recording": false,
+  "watermark": false,
   "devices": false,
   "mjpeg": true,
   "mse": true,
@@ -102,6 +103,7 @@ CSRF 契约：所有 `POST/PUT/DELETE/PATCH` 到 `/api/*`（auth 族除外：log
 - `camera_management`：支持相机 CRUD（§4.2）。
 - `camera_control`：支持 start/stop（§4.3）。
 - `imaging` / `ai` / `ptz` / `hls` / `recording` / `devices` / `webrtc`：对应 Extension 端点存在。
+- `watermark`：设备支持视频水印（§5.2 配置子树）。烧录发生在编码前，对该设备的全部视频输出（直播 / RTSP / ONVIF / GB28181 / 录制文件 / 快照）生效；生效时机由 `config_apply.sections.watermark` 通告。
 - `ai_models`：设备带模型注册表并支持运行时热切换（§4.6 的模型清单 / 激活端点）。仅在 `ai:true` 时有意义；缺省视为 `false`，前端隐藏模型切换 UI。
 - `ai_upload`：设备允许运行时上传/删除模型文件（§4.6 的 POST/DELETE）。仅在 `ai_models:true` 时有意义；缺省视为 `false`。设备侧以配置开关（如 `ai.allow_upload`，默认关）控制——模型文件是对推理引擎的不可信输入，生产环境应仅在需要时开启。
 - `mjpeg` / `mse`：对应流端点存在（前端回落链 MSE → MJPEG → 快照轮询）。
@@ -260,7 +262,27 @@ MSE 流细则：init segment（`ftyp`+`moov`）只发一次，随后每访问单
 | GET | `/api/config` | 完整配置文档（各设备 schema 不同），机密字段（`password` 等）脱敏为 `"****"` |
 | PUT | `/api/config` | **部分合并**写：只提交要改的子树，深合并到现配置；`"****"` 值原样写回时服务端还原为存储值。响应 `{"applied":"restart"|"immediate"}` |
 
-前端职责：读取 → 递归渲染编辑器 → 收集变更子树 → 深合并 → PUT。生效语义从 `capabilities.config_apply` 读取并向用户展示：每个配置节标题处标注「需重启生效」/「立即生效」；改动了 `restart` 节并保存后，若设备通告 `restart` 能力，展示"立即重启"入口。机头字段名统一 `web.username` / `web.password` / `rtsp.*` / `onvif.*` / `gb28181.*`（各设备多出的节自由扩展）。
+前端职责：读取 → 递归渲染编辑器 → 收集变更子树 → 深合并 → PUT。生效语义从 `capabilities.config_apply` 读取并向用户展示：每个配置节标题处标注「需重启生效」/「立即生效」；改动了 `restart` 节并保存后，若设备通告 `restart` 能力，展示"立即重启"入口。机头字段名统一 `web.username` / `web.password` / `rtsp.*` / `onvif.*` / `gb28181.*`；`watermark.*` 水印子树字段三端同名（定义见 §5.2）（各设备多出的节自由扩展）。
+
+### 5.2 视频水印（Extension：`watermark`）
+
+在编码前把水印（自定义文案 + 实时时间）烧录进设备的**全部视频输出**（直播 / RTSP / ONVIF / GB28181 / 录制文件 / 快照，安防 OSD 惯例）。配置子树：
+
+| 字段 | 类型 | 缺省 | 说明 |
+|------|------|------|------|
+| `watermark.enabled` | bool | `false` | 启用水印 |
+| `watermark.text` | string ≤128 | `""` | 自定义文案；可含非 ASCII 字符，能否渲染取决于字体（见 `font_path`） |
+| `watermark.show_timestamp` | bool | `true` | 烧录实时时间（设备本地时区） |
+| `watermark.timestamp_format` | string | `"%Y-%m-%d %H:%M:%S"` | strftime 子集白名单：`%Y` `%m` `%d` `%H` `%M` `%S` `%F` `%T` `%%` + 字面量字符 |
+| `watermark.position` | enum | `"top-left"` | `top-left` / `top-right` / `bottom-left` / `bottom-right` |
+| `watermark.font_size` | int | `24` | 像素高度，12..96 |
+| `watermark.font_path` | string | `""` | 可选 TTF/OTF 路径（如 CJK 字体，启用中文文案）；空 = 设备内嵌 ASCII 字体（非 ASCII 字符渲染为缺字/空白） |
+
+语义：
+- 文案与时间戳同行渲染（`text` + 两个空格 + 时间戳；二者可独立关闭）。样式 v1 固定：白字 + 1px 黑描边（OSD 标准），边距为设备常量不可配。
+- 校验：`enabled:true` 时须 `text` 非空或 `show_timestamp:true`；`position` / `font_size` / `timestamp_format` 非法 → 400。
+- `font_path` 指向的字体加载失败：回落内嵌字体并记录告警，服务不失败（fail-open）。
+- 生效时机由 `config_apply.sections.watermark` 通告；设备方言见附录 A14。
 
 ### 5.1 服务重启（Extension：`restart`）
 
@@ -303,6 +325,7 @@ MSE 流细则：init segment（`ftyp`+`moov`）只发一次，随后每访问单
 11. **可观测（§3.2）实现方言**：Go 保留 9100 独立 Prometheus 端口（历史抓取配置），同时 `/metrics` 挂在 Web 端口；rs 仅 Web 端口 `/metrics`。日志环形缓冲覆盖 log 门面（Go 为 slog 全量、rs 为协议库 log 门面）；rs 产品代码的历史 `println!` 输出仅进 journald 不进 `/api/logs`。请求追踪覆盖 Web API 面；RTSP/ONVIF/GB28181 独立端口面以 `/metrics` 计数器覆盖。notebook 后端尚未实现 §3.2（`capabilities.observability` 缺省，前端自动隐藏资源监控区）。
 12. **AI 检测（§4.6）方言**：notebook 为多相机设备，除规范端点 `GET /api/detections`（返回最近一次推理的相机结果）外，另提供逐相机扩展端点 `GET /api/cameras/{id}/detections`（响应结构同 §4.6：`{"detections","model","timestamp"}`，bbox 同为该相机原生流分辨率的视频像素坐标）。`ai_detection` SSE 事件（§6）的 `camera_id` 在 notebook 上为真实相机 UUID；Pi 设备恒为 `"0"`。**模型注册表（§4.6）**：notebook 的内置注册表只含 NanoDet 族条目（其解码器未实现 YOLOX，上传 `family` 仅接受 `nanodet`）；`ai_model_changed` 的 `camera_id` 为 `"all"`（设备级切换）；激活选择持久化在设备数据库 `ai.model` 设置（TOML `[ai]` 仅引导默认），重启后自动覆盖。
 13. **notebook GB35114 A 级子树**：`protocols.gb28181.gb35114`（`enabled`、`device_cert_file`、`device_key_file`、`platform_cert_file`、`server_id`），随 `PUT /api/config` 深合并热应用（嵌套节同样拒绝未知字段、兼容字符串布尔）。证书缺失/无效时 GB28181 拒绝启动（fail-closed），Web 与其他协议不受影响。
+14. **视频水印（§5.2）方言**：rs 为顶层 `watermark` TOML 节（`PUT /api/config` 落盘、`POST /api/system/restart` 生效，`config_apply.sections.watermark = "restart"`）；notebook 为 `protocols.watermark`（SQLite 持久化，设备级全局、作用于全部相机；相机流 (重)启时读取生效——与 `protocols.recording` 同为 read-at-use。水印启用时 MJPEG 相机的快照直通关闭，改为从带水印的 YUV 重编码）；Go 未实现（`watermark` 能力缺省 `false`，前端不渲染水印设置）——libcamera rpicam-apps 已移除 annotate 通道，实时水印需改造采集管线，待单独立项。
 
 ## 8. 附录 B：本规范取代的旧端点（迁移对照）
 

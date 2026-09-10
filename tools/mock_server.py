@@ -47,6 +47,9 @@ STATE = {
                     "register_interval_secs": 3600, "heartbeat_interval_secs": 60,
                     "heartbeat_timeout_count": 3},
         "logging": {"level": "info"},
+        "watermark": {"enabled": False, "text": "", "show_timestamp": True,
+                      "timestamp_format": "%Y-%m-%d %H:%M:%S", "position": "top-left",
+                      "font_size": 24, "font_path": ""},
         "features": {"ai": {"enabled": False, "model": "nanodet-plus-m-320",
                             "model_path": "models/nanodet-m.onnx",
                             "cpu_cores": [2, 3]}},
@@ -98,6 +101,7 @@ CAPS = {
     "ptz": True,
     "hls": False,
     "recording": True,
+    "watermark": True,
     "devices": True,
     "mjpeg": True,
     "mse": True,
@@ -106,7 +110,8 @@ CAPS = {
                "ai_model_changed", "recording", "status"],
     "config_apply": {"default": "restart", "sections": {"imaging": "immediate",
                                                         # demonstrates the immediate badge on a real config section
-                                                        "logging": "immediate"}},
+                                                        "logging": "immediate",
+                                                        "watermark": "restart"}},
     "restart": True,
     "observability": {"metrics": True, "logs": True, "requests": True},
 }
