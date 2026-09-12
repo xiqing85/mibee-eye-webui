@@ -326,6 +326,7 @@ MSE 流细则：init segment（`ftyp`+`moov`）只发一次，随后每访问单
 12. **AI 检测（§4.6）方言**：notebook 为多相机设备，除规范端点 `GET /api/detections`（返回最近一次推理的相机结果）外，另提供逐相机扩展端点 `GET /api/cameras/{id}/detections`（响应结构同 §4.6：`{"detections","model","timestamp"}`，bbox 同为该相机原生流分辨率的视频像素坐标）。`ai_detection` SSE 事件（§6）的 `camera_id` 在 notebook 上为真实相机 UUID；Pi 设备恒为 `"0"`。**模型注册表（§4.6）**：notebook 的内置注册表只含 NanoDet 族条目（其解码器未实现 YOLOX，上传 `family` 仅接受 `nanodet`）；`ai_model_changed` 的 `camera_id` 为 `"all"`（设备级切换）；激活选择持久化在设备数据库 `ai.model` 设置（TOML `[ai]` 仅引导默认），重启后自动覆盖。
 13. **notebook GB35114 A 级子树**：`protocols.gb28181.gb35114`（`enabled`、`device_cert_file`、`device_key_file`、`platform_cert_file`、`server_id`），随 `PUT /api/config` 深合并热应用（嵌套节同样拒绝未知字段、兼容字符串布尔）。证书缺失/无效时 GB28181 拒绝启动（fail-closed），Web 与其他协议不受影响。
 14. **视频水印（§5.2）方言**：rs 为顶层 `watermark` TOML 节（`PUT /api/config` 落盘、`POST /api/system/restart` 生效，`config_apply.sections.watermark = "restart"`）；notebook 为 `protocols.watermark`（SQLite 持久化，设备级全局、作用于全部相机；相机流 (重)启时读取生效——与 `protocols.recording` 同为 read-at-use。水印启用时 MJPEG 相机的快照直通关闭，改为从带水印的 YUV 重编码）；Go 未实现（`watermark` 能力缺省 `false`，前端不渲染水印设置）——libcamera rpicam-apps 已移除 annotate 通道，实时水印需改造采集管线，待单独立项。
+15. **notebook 语音对讲接收（GB/T 28181-2022 §9.2）**：`protocols.gb28181.talkback_playback`（bool，缺省 `true`，随 `PUT /api/config` 深合并、协议重启时生效）。开启且本机存在可用音频输出时，audio-only INVITE 应答 200 OK 并在本地扬声器播放（G.711 A/μ 律解码）；关闭或无输出设备时 fail-open 回落 488（与协议库对未注册 sink 的设计一致），绝不应答 200 后静默丢音。
 
 ## 8. 附录 B：本规范取代的旧端点（迁移对照）
 
