@@ -6,7 +6,7 @@
 |------|------|------|
 | `mibee-eye-rs` | 本工作区 | 树莓派，HTTP :8088，单相机（固定 id `"0"`） |
 | `mibee-eye-go` | 本工作区 | 树莓派，HTTP :8088，单相机（固定 id `"0"`） |
-| `mibee-eye-notebook` (mibee-rec) | 本工作区 | 笔记本，HTTPS :8443（TLS 强制），多相机 CRUD |
+| `mibee-eye-notebook` (binary `mibee-eye`) | 本工作区 | 笔记本，HTTPS :8443（TLS 强制），多相机 CRUD |
 
 配套参考前端：本仓库 `static/`（ES Modules，零构建），由三个设备仓库嵌入。
 
