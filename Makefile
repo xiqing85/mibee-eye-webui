@@ -1,7 +1,7 @@
 ROOT := $(CURDIR)
 GO_DIR   ?= ../mibee-eye-go/internal/web/static
 RS_DIR   ?= ../mibee-eye-rs/static
-NB_DIR   ?= ../notebook-cam/crates/web/static
+NB_DIR   ?= ../mibee-eye-notebook/crates/web/static
 
 .PHONY: help sync-go sync-rs sync-notebook mock check
 
@@ -9,7 +9,7 @@ help:
 	@echo "targets:"
 	@echo "  sync-go       copy static/ into mibee-eye-go/internal/web/static/"
 	@echo "  sync-rs       copy static/ into mibee-eye-rs/static/"
-	@echo "  sync-notebook copy static/ into notebook-cam/crates/web/static/"
+	@echo "  sync-notebook copy static/ into mibee-eye-notebook/crates/web/static/"
 	@echo "  mock          serve static/ against a SPEC-conformant mock API (:8090)"
 
 # rs and Go embed the directory contents directly; clean the destination
@@ -29,7 +29,7 @@ sync-go:
 	@echo "synced -> $(GO_DIR)"
 
 sync-notebook:
-	@test -d ../notebook-cam || (echo "notebook-cam not found"; exit 1)
+	@test -d ../mibee-eye-notebook || (echo "mibee-eye-notebook not found"; exit 1)
 	rm -rf $(NB_DIR)/js $(NB_DIR)/src $(NB_DIR)/app.js $(NB_DIR)/app.bundle.js $(NB_DIR)/index.template.html
 	cp -R $(ROOT)/static/. $(NB_DIR)/
 	@echo "synced -> $(NB_DIR)"
