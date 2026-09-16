@@ -31,3 +31,13 @@ jobs:
           # index page served
           curl -sf http://127.0.0.1:8091/ | grep -q '<html'
           kill %1
+
+  sync-drift:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Device repos are not siblings on CI runners; the check itself skips
+      # missing dirs, so this job passes standalone and becomes meaningful
+      # in workspaces where the sibling checkouts exist.
+      - name: Frontend copies match this source of truth
+        run: tools/check_sync.sh
