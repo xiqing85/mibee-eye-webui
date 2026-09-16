@@ -21,16 +21,23 @@ jobs:
       - uses: actions/checkout@v4
       - name: Mock server serves a SPEC-conformant API
         run: |
-          python3 tools/mock_server.py 8091 &
+          python3 tools/mock_server.py 8091 > mock.log 2>&1 &
+          MOCK_PID=$!
+          code=""
           for i in $(seq 1 20); do
-            curl -sf http://127.0.0.1:8091/api/health >/dev/null && break
+            code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8091/api/health || true)
+            [ "$code" = "200" ] && break
             sleep 0.5
           done
-          # health envelope
-          curl -sf http://127.0.0.1:8091/api/health | grep -q '"ok":true'
-          # index page served
-          curl -sf http://127.0.0.1:8091/ | grep -q '<html'
-          kill %1
+          echo "health: $code"
+          [ "$code" = "200" ]
+          curl -s http://127.0.0.1:8091/api/health | grep -q '"ok": *true'
+          index_code=$(curl -s -o index.html -w '%{http_code}' http://127.0.0.1:8091/)
+          echo "index: $index_code ($(wc -c < index.html) bytes)"
+          [ "$index_code" = "200" ]
+          grep -qi '<html' index.html
+          kill "$MOCK_PID"
+          cat mock.log
 
   sync-drift:
     runs-on: ubuntu-latest
