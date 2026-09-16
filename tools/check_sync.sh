@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Verify the shared frontend copies in the three device repos match the
-# mibee-webui source of truth. Exit 1 with a diff summary on drift.
+# mibee-eye-webui source of truth. Exit 1 with a diff summary on drift.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 fail=0
@@ -20,5 +20,5 @@ check() {
 }
 check mibee-eye-rs ../mibee-eye-rs/static
 check mibee-eye-go ../mibee-eye-go/internal/web/static
-check notebook-cam     ../notebook-cam/crates/web/static
+check mibee-eye-notebook ../mibee-eye-notebook/crates/web/static
 exit $fail
