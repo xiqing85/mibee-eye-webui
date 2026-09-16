@@ -8,7 +8,7 @@ Layered testing methodology for the unified web layer (SPEC v1 + shared frontend
 |------|------|------|------|
 | mibee-eye-rs (Raspberry Pi) | `http://<rs-device-ip>:8088` | `web.username`/`web.password` in device config | service `mibee-eye-rs.service` |
 | mibee-eye-go (Raspberry Pi) | `http://<go-device-ip>:8088` | falls back to ONVIF credentials | service `mibee-eye` |
-| mibee-eye-notebook (local) | `https://127.0.0.1:8443` | self-created on first-run setup | self-signed TLS, accept the certificate; SQLite `mibee_rec.db` in the working directory |
+| mibee-eye-notebook (local) | `https://127.0.0.1:8443` | self-created on first-run setup | self-signed TLS, accept the certificate; SQLite `mibee_eye.db` in the working directory |
 | mock (no device) | `http://127.0.0.1:8090` | anything | `make mock`, a SPEC-conformant fake backend |
 
 Credentials for the two Pi devices live in each device's config (`[web]` section of the rs TOML config; `web:` section of the go YAML config).
@@ -58,9 +58,9 @@ On non-zero exit, check the `ISSUES:` list and screenshots. For manual review, t
 
 ```bash
 cd ../mibee-eye-notebook
-cargo build --release          # skip if target/release/mibee-rec already exists
-rm -f mibee_rec.db*            # delete the DB to walk the first-run setup flow; keep it to reuse an existing account
-(setsid ./target/release/mibee-rec --config config.toml > tmp/run.log 2>&1 < /dev/null &)
+cargo build --release          # skip if target/release/mibee-eye already exists
+rm -f mibee_eye.db*            # delete the DB to walk the first-run setup flow; keep it to reuse an existing account
+(setsid ./target/release/mibee-eye --config config.toml > tmp/run.log 2>&1 < /dev/null &)
 curl -sk https://127.0.0.1:8443/api/health
 ```
 
