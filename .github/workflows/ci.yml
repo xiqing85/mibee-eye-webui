@@ -1,0 +1,33 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  js-syntax:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Syntax-check every ES module
+        run: |
+          for f in static/js/*.js; do
+            node --check "$f"
+          done
+
+  mock-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Mock server serves a SPEC-conformant API
+        run: |
+          python3 tools/mock_server.py 8091 &
+          for i in $(seq 1 20); do
+            curl -sf http://127.0.0.1:8091/api/health >/dev/null && break
+            sleep 0.5
+          done
+          # health envelope
+          curl -sf http://127.0.0.1:8091/api/health | grep -q '"ok":true'
+          # index page served
+          curl -sf http://127.0.0.1:8091/ | grep -q '<html'
+          kill %1
