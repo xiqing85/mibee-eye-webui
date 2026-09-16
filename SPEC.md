@@ -328,6 +328,7 @@ MSE 流细则：init segment（`ftyp`+`moov`）只发一次，随后每访问单
 13. **notebook GB35114 A 级子树**：`protocols.gb28181.gb35114`（`enabled`、`device_cert_file`、`device_key_file`、`platform_cert_file`、`server_id`），随 `PUT /api/config` 深合并热应用（嵌套节同样拒绝未知字段、兼容字符串布尔）。证书缺失/无效时 GB28181 拒绝启动（fail-closed），Web 与其他协议不受影响。
 14. **视频水印（§5.2）方言**：rs 为顶层 `watermark` TOML 节（`PUT /api/config` 落盘、`POST /api/system/restart` 生效，`config_apply.sections.watermark = "restart"`）；notebook 为 `protocols.watermark`（SQLite 持久化，设备级全局、作用于全部相机；相机流 (重)启时读取生效——与 `protocols.recording` 同为 read-at-use。水印启用时 MJPEG 相机的快照直通关闭，改为从带水印的 YUV 重编码）；Go 未实现（`watermark` 能力缺省 `false`，前端不渲染水印设置）——libcamera rpicam-apps 已移除 annotate 通道，实时水印需改造采集管线，待单独立项。
 15. **notebook 语音对讲接收（GB/T 28181-2022 §9.2）**：`protocols.gb28181.talkback_playback`（bool，缺省 `true`，随 `PUT /api/config` 深合并、协议重启时生效）。开启且本机存在可用音频输出时，audio-only INVITE 应答 200 OK 并在本地扬声器播放（G.711 A/μ 律解码）；关闭或无输出设备时 fail-open 回落 488（与协议库对未注册 sink 的设计一致），绝不应答 200 后静默丢音。
+16. **notebook 告警与位置方言（GB/T 28181-2022 §9.5 / §9.7）**：`protocols.gb28181` 新增四键——`alarm_notify_enabled`（bool，缺省 `true`；平台 DeviceConfig AlarmReport 双开关可运行时覆盖）、`alarm_cooldown_secs`（u64，缺省 `30`；AI 检测上升沿告警的冷却）、`position_longitude` / `position_latitude`（string，缺省空 = 不上报 MobilePosition；非空时随订阅周期以静态位置上报）。AI 检测上升沿触发 §6 `alarm` SSE 事件并在启用时发 Alarm NOTIFY（AlarmPriority 4 / AlarmMethod 5 / AlarmType 2，2022 标准表）。均随 `PUT /api/config` 深合并，协议重启时生效。
 
 ## 8. 附录 B：本规范取代的旧端点（迁移对照）
 
