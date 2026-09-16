@@ -1,35 +1,68 @@
-# mibee-webui
+# mibee-eye-webui
 
-MiBee 摄像头设备的**统一 Web 前端 + Web API 规范**唯一真源（single source of truth）。
+[![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
+[![Spec](https://img.shields.io/badge/SPEC-v1-informational.svg)](SPEC.md)
 
-被三个设备仓库嵌入：
+**The single source of truth for the unified web frontend and web API specification of the MiBee Eye camera family.**
 
-| 设备仓库 | 嵌入位置 | 同步命令 |
+One codebase serves three sibling device projects. Each device embeds the same
+ES-module frontend and implements the same `SPEC v1` API contract; the UI
+renders panels based on the device's announced `capabilities`.
+
+| Device repo | Embed location | Sync command |
 |----------|----------|----------|
-| `mibee-eye-rs` | `static/`（rust-embed） | `make sync-rs` |
-| `mibee-eye-go` | `internal/web/static/`（go:embed） | `make sync-go` |
-| `notebook-cam` | `crates/web/static/`（include_dir!） | `make sync-notebook` |
+| [mibee-eye-rs](https://github.com/xiqing85/mibee-eye-rs) (Rust, Raspberry Pi & beyond) | `static/` (rust-embed) | `make sync-rs` |
+| [mibee-eye-go](https://github.com/xiqing85/mibee-eye-go) (Go, Raspberry Pi & beyond) | `internal/web/static/` (go:embed) | `make sync-go` |
+| mibee-eye-notebook (Rust, PC-local agent) | `crates/web/static/` (include_dir!) | `make sync-notebook` |
 
-## 内容
+## What's inside
 
-- **`SPEC.md`** — 统一 Web API 规范（v1）：响应信封、cookie 会话 + CSRF 认证、
-  `/api/cameras` 资源模型、capabilities 能力协商、SSE 事件通道、设备方言附录。
-  三端后端实现以此为准；改规范 = 改这里，然后同步实现。
-- **`static/`** — ES Modules 模块化 vanilla 前端，零构建零依赖。
-  浏览器原生 `import`，无 node / bundler。功能按 `capabilities` 能力门控：
-  设备通告什么能力，UI 就出现什么面板（notebook 的多路网格/设备管理，
-  Pi 的成像/AI 叠加/PTZ，都是同一份代码的不同投影）。
-- **`tools/mock_server.py`** — 规范一致的 mock API 服务器，前端开发不依赖实机。
+- **`SPEC.md`** — the unified web API spec (v1): response envelope, cookie
+  session + CSRF auth, the `/api/cameras` resource model, capabilities
+  negotiation, the SSE event channel, and per-device dialect appendices.
+  All three backends implement this contract; to change the API, change this
+  file first, then the implementations. (Spec prose is in Chinese.)
+- **`static/`** — modular vanilla-JS ES-module frontend. Zero build, zero
+  dependencies: native browser `import`, no node, no bundler. Features are
+  capability-gated: whatever the device advertises is the UI you get
+  (notebook's multi-camera grid & device management, the Pi's imaging /
+  AI overlay / PTZ — all projections of the same code).
+- **`tools/mock_server.py`** — a spec-conformant mock API server, so frontend
+  development never needs real hardware.
 
-## 开发流程
+## Development
 
 ```bash
-make mock        # http://127.0.0.1:8090 — 首启走 setup 流程，密码自行设置（MOCK_PREAUTH=1 时取 MIBEE_WEBUI_PASSWORD 或随机生成）
-make sync-rs     # 改完 static/ 后同步进设备仓库（再走各仓库构建/测试）
+make mock        # http://127.0.0.1:8090 — first visit walks the setup flow (MOCK_PREAUTH=1 takes MIBEE_WEBUI_PASSWORD or generates one)
+make sync-rs     # after editing static/, sync into a device repo, then build/test there
 ```
 
-## 规则
+See [TESTING.md](TESTING.md) for the layered testing methodology (mock → API
+smoke → Playwright walkthrough → real-device interop).
 
-- 改前端**必须**改这里，再 `make sync-*` 同步；不要直接编辑设备仓库里的拷贝。
-- 改 API 行为**必须**先改 `SPEC.md`（同版本只做加法；破坏性变更升 `spec_version`）。
-- 本仓库 `tmp/` 存放临时产物（已 gitignore）。
+## Rules
+
+- Frontend changes **must** land here first, then `make sync-*`; never edit
+  the copies inside device repos.
+- API changes **must** change `SPEC.md` first (additive within a spec version;
+  bump `spec_version` for breaking changes).
+- Transient artifacts go to `tmp/` (gitignored).
+
+## The MiBee Eye family
+
+- [mibee-eye-rs](https://github.com/xiqing85/mibee-eye-rs) — Rust camera service (Raspberry Pi and any Linux board with V4L2)
+- [mibee-eye-go](https://github.com/xiqing85/mibee-eye-go) — Go camera service (same mission, sibling implementation)
+- Protocol libraries powering both: [gb28181-rs](https://github.com/mickeyzzc/gb28181-rs) · [gb28181-go](https://github.com/mickeyzzc/gb28181-go) · [onvif-rs](https://github.com/mickeyzzc/onvif-rs) · [onvif-go](https://github.com/mickeyzzc/onvif-go)
+
+## 中文说明
+
+本仓库是 MiBee Eye 摄像头家族**统一 Web 前端 + Web API 规范**的唯一真源。
+三个设备仓各内嵌同一份 ES Modules 前端（零构建零依赖），并实现同一份
+`SPEC v1` 契约；UI 按设备 `capabilities` 门控渲染。改前端必须改这里再
+`make sync-*` 同步；改 API 行为必须先改 `SPEC.md`。`make mock` 可在
+无实机情况下开发前端（:8090）。测试方法论见 [TESTING.md](TESTING.md)
+（mock → API 冒烟 → Playwright 走查 → 真机互联四层）。
+
+## License
+
+Licensed under [Apache-2.0](LICENSE).

@@ -12,7 +12,7 @@ Usage:
   PASSWORD may also be supplied via the MIBEE_WEBUI_PASSWORD env var.
 
 Examples:
-  tools/browser_walkthrough.py http://<rs-device-ip>:8088 "$MIBEE_WEBUI_PASSWORD"
+  tools/browser_walkthrough.py http://<device-ip>:8088 "$MIBEE_WEBUI_PASSWORD"
   tools/browser_walkthrough.py https://127.0.0.1:8443 "$MIBEE_WEBUI_PASSWORD" admin nb
 
 One-time setup (no node needed):

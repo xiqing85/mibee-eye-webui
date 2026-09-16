@@ -1,101 +1,101 @@
-# 三个设备环境测试指南
+# Multi-Device Testing Guide
 
-统一 Web 层（SPEC v1 + 共享前端）的分层测试方法。从快到慢四层，越往下越接近真机。
+Layered testing methodology for the unified web layer (SPEC v1 + shared frontend). Four layers from fast to slow; the further down, the closer to real hardware.
 
-## 环境一览
+## Environments
 
-| 环境 | 地址 | 凭证 | 备注 |
+| Environment | Address | Credentials | Notes |
 |------|------|------|------|
-| raspi-rs（`<rs-device-host>`） | `http://<rs-device-ip>:8088` | 配置文件 `web.username`/`web.password` | 部署主机 `ssh your-user@<rs-device-ip>`，服务 `mibee-eye-rs.service` |
-| raspi-go（`<go-device-host>`） | `http://<go-device-ip>:8088` | 回落 ONVIF 凭证 | `ssh your-user@<go-device-ip>`，服务 `mibee-eye` |
-| notebook（本地） | `https://127.0.0.1:8443` | 首启 setup 自建 | 自签 TLS，需接受证书；SQLite `mibee_rec.db` 在工作目录 |
-| mock（无设备） | `http://127.0.0.1:8090` | 任意 | `make mock`，SPEC 一致的假后端 |
+| mibee-eye-rs (Raspberry Pi) | `http://<rs-device-ip>:8088` | `web.username`/`web.password` in device config | service `mibee-eye-rs.service` |
+| mibee-eye-go (Raspberry Pi) | `http://<go-device-ip>:8088` | falls back to ONVIF credentials | service `mibee-eye` |
+| mibee-eye-notebook (local) | `https://127.0.0.1:8443` | self-created on first-run setup | self-signed TLS, accept the certificate; SQLite `mibee_rec.db` in the working directory |
+| mock (no device) | `http://127.0.0.1:8090` | anything | `make mock`, a SPEC-conformant fake backend |
 
-两台 Pi 的凭证在各自设备配置里（rs: `/etc/mibee-eye/config.toml` 的 `[web]` 节；go: `~/<go-device-host>/configs/config.yaml` 的 `web:` 节）。
+Credentials for the two Pi devices live in each device's config (`[web]` section of the rs TOML config; `web:` section of the go YAML config).
 
-## 第 0 层：纯前端（不碰设备）
-
-```bash
-cd mibee-webui && make mock   # :8090
-# 浏览器打开 http://127.0.0.1:8090 —— mock 支持 MOCK_PREAUTH=1 跳过登录
-```
-
-改前端时的日常回路：改 `static/` → mock 验证 → `make sync-*` 同步。
-
-## 第 1 层：API 冒烟（一条命令，零依赖）
+## Layer 0: pure frontend (no device)
 
 ```bash
-tools/smoke.sh http://<rs-device-ip>:8088 <密码>          # rs
-tools/smoke.sh http://<go-device-ip>:8088 <密码>          # go
-tools/smoke.sh https://127.0.0.1:8443 <密码> admin        # notebook
+cd mibee-eye-webui && make mock   # :8090
+# open http://127.0.0.1:8090 — mock supports MOCK_PREAUTH=1 to skip login
 ```
 
-覆盖：health 信封 → 认证态（401 / 首启 503→setup）→ 登录 → me → capabilities（`spec_version`）→ cameras → config → SSE 探测 → 登出后会话失效。全过退出码 0。
+Daily loop when changing the frontend: edit `static/` → verify against mock → `make sync-*`.
 
-## 第 2 层：浏览器自动化走查（Playwright）
+## Layer 1: API smoke (one command, zero dependencies)
 
-一次性安装（无 node 依赖；仓库根 `.venv/` 已 gitignore）：
+```bash
+tools/smoke.sh http://<rs-device-ip>:8088 <password>          # rs
+tools/smoke.sh http://<go-device-ip>:8088 <password>          # go
+tools/smoke.sh https://127.0.0.1:8443 <password> admin        # notebook
+```
+
+Covers: health envelope → auth state (401 / first-run 503→setup) → login → me → capabilities (`spec_version`) → cameras → config → SSE probe → session invalidation after logout. Exit code 0 means all green.
+
+## Layer 2: browser walkthrough (Playwright)
+
+One-time install (no node dependencies; repo-root `.venv/` is gitignored):
 
 ```bash
 python3 -m venv .venv && .venv/bin/pip install playwright
 .venv/bin/playwright install chromium
 ```
 
-跑（自动处理首启 setup / 错密码 / 登录 / 相机启动 / 直播播放头推进 / 各视图 / 语言主题 / 登出；截图落 `tmp/walkthrough-<tag>/`；退出码非 0 = 有问题）：
+Run (handles first-run setup / wrong password / login / camera start / live video playback progress / all views / language & theme / logout; screenshots land in `tmp/walkthrough-<tag>/`; non-zero exit = something is wrong):
 
 ```bash
-.venv/bin/python tools/ux_visual_check.py (mock, 47 项交互/视觉断言 + 截图) 与 tools/browser_walkthrough.py http://<rs-device-ip>:8088 <密码> admin rs
-.venv/bin/python tools/browser_walkthrough.py http://<go-device-ip>:8088 <密码> admin go
-.venv/bin/python tools/browser_walkthrough.py https://127.0.0.1:8443 <密码> admin nb
+.venv/bin/python tools/ux_visual_check.py                                  # mock: 47 interaction/visual assertions + screenshots
+.venv/bin/python tools/browser_walkthrough.py http://<rs-device-ip>:8088 <password> admin rs
+.venv/bin/python tools/browser_walkthrough.py http://<go-device-ip>:8088 <password> admin go
+.venv/bin/python tools/browser_walkthrough.py https://127.0.0.1:8443 <password> admin nb
 ```
 
-注意：脚本会先点"相机"页启动停止中的相机再验证直播，因此 notebook 全新首启（相机未启动）也能一遍通过。
+Note: the script starts a stopped camera on the cameras page before verifying live video, so a fresh notebook first-run (camera not yet started) also passes in one go.
 
-退出码非 0 时看 `ISSUES:` 列表和截图。人工抽查建议看三张图：`04-live.png`（画面在动）、`06-settings.png`（配置编辑器完整）、`07-status.png`。
+On non-zero exit, check the `ISSUES:` list and screenshots. For manual review, three screenshots matter most: `04-live.png` (picture is moving), `06-settings.png` (config editor complete), `07-status.png`.
 
-## 第 3 层：notebook 本地起服务
+## Layer 3: run the notebook service locally
 
 ```bash
-cd ../notebook-cam
-cargo build --release          # 已有 target/release/mibee-rec 可跳过
-rm -f mibee_rec.db*            # 想走首启 setup 流就删库；不删则用已有账号
+cd ../mibee-eye-notebook
+cargo build --release          # skip if target/release/mibee-rec already exists
+rm -f mibee_rec.db*            # delete the DB to walk the first-run setup flow; keep it to reuse an existing account
 (setsid ./target/release/mibee-rec --config config.toml > tmp/run.log 2>&1 < /dev/null &)
 curl -sk https://127.0.0.1:8443/api/health
 ```
 
-首次访问浏览器会进 setup 表单（用户名 + 密码 ≥8 位 + 确认），建号即登录。
+The first browser visit lands on the setup form (username + password ≥8 chars + confirmation); creating the account logs you in.
 
-## 第 4 层：真机互联回归（部署后必做）
+## Layer 4: real-device interop regression (mandatory after deployment)
 
-改动的代码若触碰协议层（见工作区 AGENTS.md 分层判定表），部署到 Pi 后必须过一遍 NVR 互联面：
+If the change touches the protocol layer (see the layering table in each repo's contributing docs), the deployed device must pass the NVR interop surface:
 
 ```bash
-# go 端（.118，注册生产 NVR .30）
+# go device
 curl -s -o /dev/null -w '%{http_code} %{content_type}\n' http://<go-device-ip>:8088/snapshot   # 200 video/H264
 printf 'DESCRIBE rtsp://<go-device-ip>:8554/stream RTSP/1.0\r\nCSeq: 1\r\n\r\n' | timeout 4 nc <go-device-ip> 8554 | head -1   # 200 OK
-ssh your-user@<go-device-ip> 'journalctl -u mibee-eye --since "-3 min" | grep -iE "REGISTER|SUBSCRIBE"'
+ssh <user>@<go-device-ip> 'journalctl -u mibee-eye --since "-3 min" | grep -iE "REGISTER|SUBSCRIBE"'
 curl -s -X POST http://<go-device-ip>:8080/onvif/device_service -H 'Content-Type: application/soap+xml' \
   -d '<?xml version="1.0"?><s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope"><s:Body><GetDeviceInformation xmlns="http://www.onvif.org/ver10/device/wsdl"/></s:Body></s:Envelope>' | head -c 200
 
-# rs 端（.104）同理，服务名 mibee-eye-rs，地址换 <rs-device-ip>
+# rs device: same checks, service name mibee-eye-rs, address <rs-device-ip>
 ```
 
-判定：`/snapshot` 无鉴权 200、RTSP DESCRIBE 应答元素名不变（NVR 做本地名匹配）、GB28181 REGISTER successful + SUBSCRIBE 200 OK、ONVIF 响应字节稳定。
+Pass criteria: `/snapshot` returns 200 without auth, RTSP DESCRIBE response element names unchanged (the NVR does local-name matching), GB28181 REGISTER successful + SUBSCRIBE 200 OK, ONVIF responses byte-stable.
 
-## 部署回路（改完代码后）
+## Deploy loop (after code changes)
 
 ```bash
-# rs：workstation 交叉编译 → 推 → 重启
+# rs: cross-compile on the workstation → push → restart
 cd ../mibee-eye-rs && cargo zigbuild --release --target aarch64-unknown-linux-gnu
-scp target/aarch64-unknown-linux-gnu/release/mibee-eye-rs your-user@<rs-device-ip>:/tmp/mibee-new
-ssh your-user@<rs-device-ip> 'sudo systemctl stop mibee-eye-rs && sudo install -m 755 /tmp/mibee-new /usr/local/bin/mibee-eye-rs && sudo systemctl start mibee-eye-rs'
+# then copy target/aarch64-unknown-linux-gnu/release/mibee-eye-rs to the device
+# and restart the mibee-eye-rs service
 
-# go：
-cd ../mibee-eye-go && GOOS=linux GOARCH=arm64 go build -o /tmp/<go-device-bin> ./cmd/server
-scp /tmp/<go-device-bin> your-user@<go-device-ip>:/tmp/<go-device-host>-new
-ssh your-user@<go-device-ip> 'sudo systemctl stop mibee-eye && install -m 755 /tmp/<go-device-host>-new ~/<go-device-host>/<go-device-bin> && sudo systemctl start mibee-eye'
+# go:
+cd ../mibee-eye-go && GOOS=linux GOARCH=arm64 go build -o build/mibee-eye ./cmd/server
+# then copy build/mibee-eye to the device and restart the mibee-eye service
 
-# notebook：本地 cargo build --release 直接跑
+# notebook: cargo build --release and run locally
 ```
 
-> 不要在 Pi 上编译。前端改动先在 mibee-webui `make sync-*` 再编译设备仓库。
+> Do not compile on the Pi. Frontend changes: run `make sync-*` in mibee-eye-webui first, then build the device repo.
