@@ -367,6 +367,12 @@ with sync_playwright() as p:
     check("mobile: bottom tab bar visible", mp.locator("#nav-mobile").is_visible())
     check("mobile: tools stay in top bar", mp.locator("#nav .theme-btn").is_visible())
     shot(mp, "30-mobile-live", full=True)
+    # Horizontal overflow on mobile widens the LAYOUT viewport, which pushes
+    # the fixed bottom nav off-screen — the tab bar then becomes unclickable
+    # and every later tab click reports an interception (#6). Assert early,
+    # on the preview view with two cameras, where the live toolbar is widest.
+    overflow_pv = mp.evaluate("document.documentElement.scrollWidth - document.documentElement.clientWidth")
+    check("mobile: no horizontal overflow (preview)", overflow_pv <= 0, f"{overflow_pv}px overflow")
     mp.click("#nav-mobile .nav-tab[data-view=cameras]")
     mp.wait_for_timeout(1000)
     shot(mp, "31-mobile-cameras", full=True)
