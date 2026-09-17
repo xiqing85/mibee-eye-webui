@@ -110,7 +110,7 @@ CAPS = {
     "mse": True,
     "webrtc": False,
     "events": ["camera_added", "camera_offlined", "param_changed", "ai_detection",
-               "ai_model_changed", "recording", "status"],
+               "ai_model_changed", "recording", "status", "alarm"],
     "config_apply": {"default": "restart", "sections": {"imaging": "immediate",
                                                         # demonstrates the immediate badge on a real config section
                                                         "logging": "immediate",
@@ -224,6 +224,11 @@ def ai_thread():
         sse_broadcast("ai_detection", {"camera_id": "0",
                                        "detections": STATE["detections"]["detections"],
                                        "frame_number": fn})
+        # Alarm rising edges (SPEC §6) — the mock person trips an edge every
+        # 30s, mirroring the edge cooldown default (alarm_cooldown_secs 30).
+        if fn % 15 == 1:
+            sse_broadcast("alarm", {"camera_id": "0", "active": True, "source": "ai",
+                                    "targets": 1, "timestamp": int(time.time() * 1000)})
 
 
 class Handler(BaseHTTPRequestHandler):
