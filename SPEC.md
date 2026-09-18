@@ -50,7 +50,7 @@
 |------|------|------|-----------|
 | GET | `/api/auth/me` | — | 已登录：`{"username":"admin","role":"admin"}`；未登录：401；未初始化：503 `setup_required` |
 | POST | `/api/auth/setup` | `{"username","password"}`（密码 ≥ 8 字符） | `{"username"}`；建立会话（下发 cookie）；已初始化时 400 |
-| POST | `/api/auth/login` | `{"username","password"}`；`username` 为空/省略时按 `"admin"` 处理（单管理员密码登录表单） | `{"username"}`；建立会话；错误凭证 401；限速/锁定 429 |
+| POST | `/api/auth/login` | `{"username","password"}`；`username` 为空/省略时按 `"admin"` 处理（服务端宽容规则，保持 API 兼容；参考前端登录表单渲染显式用户名输入，留空即走该默认） | `{"username"}`；建立会话；错误凭证 401；限速/锁定 429 |
 | POST | `/api/auth/logout` | — | 204，清除会话 |
 | POST | `/api/auth/reset` | `{"old_password","new_password"}` | `{"username"}`；成功后使所有既有会话失效 |
 
