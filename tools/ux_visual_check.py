@@ -72,7 +72,9 @@ with sync_playwright() as p:
     pg.goto(BASE, wait_until="domcontentloaded")
     pg.wait_for_timeout(1200)
     shot(pg, "01-setup-mode")
-    if pg.locator("#login-username").is_visible():
+    # Setup mode = confirm-password field present; the username input is
+    # rendered in both modes (SPEC §2).
+    if pg.locator("#login-password2").is_visible():
         # First boot against a fresh mock: full SPEC §2 setup flow.
         check("setup: username field visible", True)
         check("setup: hint visible", pg.locator("#setup-hint").is_visible())
@@ -89,8 +91,11 @@ with sync_playwright() as p:
         check("setup: enters app", pg.locator("#app").is_visible())
     else:
         # Mock already set up by a previous run — the setup assertions only
-        # apply to first boot; sign in instead.
+        # apply to first boot; sign in instead. The username input must be
+        # rendered in login mode too (SPEC §2 explicit-username login).
         check("setup: enters app (skip — already configured)", True, note_skip=True)
+        check("login: username field visible", pg.locator("#login-username").is_visible())
+        pg.fill("#login-username", "admin")
         pg.fill("#login-password", "12345678")
         pg.click("button[data-i18n=loginBtn]")
         pg.wait_for_timeout(2000)
@@ -327,6 +332,11 @@ with sync_playwright() as p:
     pg.wait_for_timeout(1200)
     check("logout: back to login", pg.locator("#view-login").is_visible())
     shot(pg, "22-login")
+    # SPEC §2: the username input is rendered in login mode too (empty
+    # resolves to "admin" server-side) — fill it explicitly for the
+    # re-login cycle so the explicit-username path is what gets covered.
+    check("login: username field visible", pg.locator("#login-username").is_visible())
+    pg.fill("#login-username", "admin")
     pg.fill("#login-password", "wrong-password")
     pg.click("button[data-i18n=loginBtn]")
     try:

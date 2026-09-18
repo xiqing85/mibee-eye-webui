@@ -24,6 +24,7 @@ import json
 import os
 import pathlib
 import sys
+import time
 
 from playwright.sync_api import sync_playwright
 
@@ -55,6 +56,7 @@ with sync_playwright() as p:
     # ERR_CONNECTION_REFUSED are the self-healed resets on
     # config_apply=restart devices (a save restarts the whole service and
     # the page retries until it is back) — only report other errors.
+    pg.on("response", on_response)
     pg.on("console", lambda m: issues.append(("console-error", m.text[:200]))
           if m.type == "error" and "401" not in m.text and "403" not in m.text
           and "503" not in m.text and "ERR_INCOMPLETE_CHUNKED_ENCODING" not in m.text
@@ -67,7 +69,9 @@ with sync_playwright() as p:
     pg.wait_for_timeout(2500)
     pg.screenshot(path=str(OUT / "01-entry.png"), full_page=True)
 
-    if pg.locator("#login-username").is_visible():
+    # Setup mode is the presence of the confirm-password field; the
+    # username input is rendered in both modes (SPEC §2).
+    if pg.locator("#login-password2").is_visible():
         # First boot: SPEC §2 setup (username + password + confirm), then
         # the server signs us in directly.
         pg.fill("#login-username", USERNAME)
@@ -77,7 +81,11 @@ with sync_playwright() as p:
         pg.click("button[data-i18n=loginBtn]")
         pg.wait_for_timeout(4000)
     else:
-        # Wrong password must be rejected with a visible error.
+        # Wrong password must be rejected with a visible error. Fill the
+        # explicit username field too — it exercises the real login path
+        # for devices whose admin user is not named "admin".
+        if USERNAME:
+            pg.fill("#login-username", USERNAME)
         pg.fill("#login-password", "definitely-wrong")
         pg.click("button[data-i18n=loginBtn]")
         pg.wait_for_timeout(1500)
@@ -143,9 +151,22 @@ with sync_playwright() as p:
                     # the stale page can never recover its stream. Reload
                     # and sign back in for the rest of the walkthrough.
                     pg.wait_for_timeout(6000)  # service restart window
-                    pg.reload(wait_until="domcontentloaded")
+                    # restart-dialect devices can still be booting here —
+                    # reload can hit ERR_CONNECTION_REFUSED. Retry until the
+                    # service answers again (bounded), instead of crashing.
+                    deadline = time.time() + 90
+                    while True:
+                        try:
+                            pg.reload(wait_until="domcontentloaded")
+                            break
+                        except Exception:
+                            if time.time() > deadline:
+                                raise
+                            pg.wait_for_timeout(3000)
                     pg.wait_for_timeout(3000)
                     if pg.locator("#view-login").is_visible():
+                        if USERNAME:
+                            pg.fill("#login-username", USERNAME)
                         pg.fill("#login-password", PASSWORD)
                         pg.click("button[data-i18n=loginBtn]")
                         pg.wait_for_timeout(3500)
