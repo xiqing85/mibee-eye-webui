@@ -307,7 +307,7 @@ MSE 流细则：init segment（`ftyp`+`moov`）只发一次，随后每访问单
 | `param_changed` | `{"camera_id","name","value"}` | imaging 参数被任意客户端修改 |
 | `ai_detection` | `{"camera_id","detections":[{"label","confidence","bbox"}],"frame_number"?}` | AI 推理帧；bbox 坐标系同 §4.6（视频像素空间） |
 | `ai_model_changed` | `{"camera_id","model"}` | 模型热切换完成（§4.6 activate 端点）；`model` 为新模型 id |
-| `alarm` | `{"camera_id","active","source","targets","timestamp"}` | 告警上升沿（v1 同版本加法）：与 GB28181 告警 NOTIFY 同源同门控（上升沿 + 冷却 + 运行时开关），在边缘被接受时即推送、与平台侧投递成败无关；`active` 恒为 `true`（上升沿事件），`source` 目前恒为 `"ai"`，`targets` 为触发目标数，`timestamp` epoch-ms |
+| `alarm` | `{"camera_id","active","source","targets","timestamp"}` | 告警上升沿（v1 同版本加法）：与 GB28181 告警 NOTIFY 同源同门控（上升沿 + 冷却 + 运行时开关），在边缘被接受时即推送、与平台侧投递成败无关；`active` 恒为 `true`（上升沿事件），`source` 目前恒为 `"ai"`，`targets` 为触发目标数，`timestamp` epoch-ms。通告门控为 AI 启用（2026-09-20 起不再要求 GB28181 启用，见附录 A #18） |
 | `recording` | `{"camera_id","active"}` | 录像启停 |
 | `status` | `{"uptime",...}` | 周期状态摘要（可选） |
 
@@ -330,6 +330,8 @@ MSE 流细则：init segment（`ftyp`+`moov`）只发一次，随后每访问单
 15. **notebook 语音对讲接收（GB/T 28181-2022 §9.2）**：`protocols.gb28181.talkback_playback`（bool，缺省 `true`，随 `PUT /api/config` 深合并、协议重启时生效）。开启且本机存在可用音频输出时，audio-only INVITE 应答 200 OK 并在本地扬声器播放（G.711 A/μ 律解码）；关闭或无输出设备时 fail-open 回落 488（与协议库对未注册 sink 的设计一致），绝不应答 200 后静默丢音。
 16. **notebook 告警与位置方言（GB/T 28181-2022 §9.5 / §9.7）**：`protocols.gb28181` 新增四键——`alarm_notify_enabled`（bool，缺省 `true`；平台 DeviceConfig AlarmReport 双开关可运行时覆盖）、`alarm_cooldown_secs`（u64，缺省 `30`；AI 检测上升沿告警的冷却）、`position_longitude` / `position_latitude`（string，缺省空 = 不上报 MobilePosition；非空时随订阅周期以静态位置上报）。AI 检测上升沿触发 §6 `alarm` SSE 事件并在启用时发 Alarm NOTIFY（AlarmPriority 4 / AlarmMethod 5 / AlarmType 2，2022 标准表）。均随 `PUT /api/config` 深合并，协议重启时生效。
 17. **notebook 语音对讲上行（GB/T 28181-2022 §9.2 发送半）**：`protocols.gb28181.talkback_upstream`（bool，缺省 `false`，随 `PUT /api/config` 深合并、协议重启时生效）。开启且本机存在可用音频输入时，向协议库注册 G.711 源（8 kHz 单声道、20 ms 帧，无会话期间有界缓存约 1 s 后丢帧）；平台发起的 recvonly 对讲 INVITE 应答 200 并以 20 ms 节拍向 offer 的 c=/m= 地址发送 RTP。关闭或无输入设备时 fail-open——不注册源，库对 recvonly offer 应答 488，绝不静默应答后无声。**上行编码律随会话协商**（2026-09-17 起）：缺省 PCMA（GB 平台事实标准）；平台以 PCMU 发起 offer 时，编码与 RTP payload type 一并切到 μ-law（库协商律共享槽，产品编码器逐块轮询）。
+
+18. **ONVIF Pull-Point 事件方言（三端，2026-09-20 起）**：`onvif.events_enabled`（bool，缺省 `true`；rs 为 TOML `[onvif].events_enabled`、go 为 YAML `onvif.events_enabled`、notebook 为 `protocols.onvif.events_enabled` SQLite 键——旧库缺行按 `true` 解析）启用 ONVIF 事件服务：AI 检测上升沿在既有 GB 告警 NOTIFY 与 §6 `alarm` SSE 之外，再发布 `tns1:VideoSource/MotionAlarm`（`Source`=相机 id——Pi 设备恒 `"0"`、notebook 为相机 UUID；`State` 恒 `true`（上升沿）；`Targets`=目标数）给持有 Pull-Point 订阅的 NVR（无人订阅安全 no-op）。事件端点：设备 service 同址应答 `CreatePullPointSubscription` 等，订阅子树 `/onvif/events_service/sub/<id>`（PullMessages/Renew/Unsubscribe）。**同一变更**：§6 `alarm` SSE 事件的通告门控从「GB28181 启用」改为「AI 启用」——告警桥接与 GB28181 解耦，SSE/ONVIF 告警不再要求 GB 启用（GB NOTIFY 仍自然门控于平台订阅）。
 
 ## 8. 附录 B：本规范取代的旧端点（迁移对照）
 
