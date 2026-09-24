@@ -32,7 +32,8 @@ STATE = {
     "sessions": {},  # token -> username
     "cameras": [
         {"id": "0", "name": "Front CSI", "status": "online", "camera_type": "csi",
-         "rtsp_url": "rtsp://localhost:8554/stream", "resolution": "1280x720", "fps": 25},
+         "rtsp_url": "rtsp://localhost:8554/stream", "resolution": "1280x720", "fps": 25,
+         "config": {"hflip": False, "vflip": False, "rotation": 0}},
     ],
     "config": {
         "web": {"port": 8088, "username": "admin", "password": "****"},
