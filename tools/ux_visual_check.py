@@ -146,14 +146,16 @@ with sync_playwright() as p:
     flip_h = pg.locator(".tile-actions .btn-flip").first
     before = flip_h.get_attribute("aria-pressed")
     flip_h.click()
-    pg.wait_for_timeout(1200)
+    # The stop→start cycle now includes a 1.5s V4L2 release grace — wait
+    # past it for the re-render + toast.
+    pg.wait_for_timeout(4500)
     flip_h = pg.locator(".tile-actions .btn-flip").first
     after = flip_h.get_attribute("aria-pressed")
     check("cameras: device flip toggles", before != after, f"{before} -> {after}")
     check("cameras: flip toast", pg.locator(".toast").count() >= 1)
     shot(pg, "06b-cameras-flip-pressed")
     flip_h.click()  # restore
-    pg.wait_for_timeout(1000)
+    pg.wait_for_timeout(4500)
     # delete → in-app confirm dialog → cancel
     pg.locator(".tile-actions .btn-danger").first.click()
     pg.wait_for_timeout(500)
