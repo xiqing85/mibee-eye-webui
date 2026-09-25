@@ -121,6 +121,24 @@ CAPS = {
     "observability": {"metrics": True, "logs": True, "requests": True},
 }
 
+# A real, decodable 32x18 gray JPEG (no runtime image libs needed). The
+# old SOI+EOI stub failed decode on every multipart frame, which drove
+# <img> error feedback loops in the browser harnesses (found while
+# debugging the cameras flip check in tools/ux_visual_check.py).
+_GRAY_JPEG = b"".fromhex(
+    "ffd8ffe000104a46494600010100000100010000ffdb0043000a07070807060a"
+    "0808080b0a0a0b0e18100e0d0d0e1d15161118231f2524221f2221262b372f26"
+    "293429212230413134393b3e3e3e252e4449433c48373d3e3bffc0000b080012"
+    "002001011100ffc4001f00000105010101010101000000000000000001020304"
+    "05060708090a0bffc400b5100002010303020403050504040000017d01020300"
+    "041105122131410613516107227114328191a1082342b1c11552d1f024336272"
+    "82090a161718191a25262728292a3435363738393a434445464748494a535455"
+    "565758595a636465666768696a737475767778797a838485868788898a929394"
+    "95969798999aa2a3a4a5a6a7a8a9aab2b3b4b5b6b7b8b9bac2c3c4c5c6c7c8c9"
+    "cad2d3d4d5d6d7d8d9dae1e2e3e4e5e6e7e8e9eaf1f2f3f4f5f6f7f8f9faffda"
+    "0008010100003f0028a28a28a28a28a28affd9"
+)
+
 AUTH_EXEMPT = {"/api/auth/login", "/api/auth/setup", "/api/auth/logout"}
 
 # ── observability mock state ─────────────────────────────────────────
@@ -612,11 +630,28 @@ class Handler(BaseHTTPRequestHandler):
                     continue  # masked round-trip (SPEC §5)
                 dst[k] = v
 
-        merge(STATE["config"], self.body_json())
+        # Go dialect (SPEC §5 addition, 2026-09-25): a camera-only update
+        # whose rotation stays within the same geometry class (0↔180, 90↔270)
+        # or only flips — effective dims unchanged — applies via an in-place
+        # camera pipeline restart instead of a process restart.
+        body = self.body_json()
+        old_rot = int(STATE["config"].get("camera", {}).get("rotation", 0) or 0)
+        cam_keys = set((body.get("camera") or {}).keys()) if isinstance(body, dict) else set()
+        geometry_preserving = (
+            isinstance(body, dict)
+            and set(body.keys()) == {"camera"}
+            and cam_keys <= {"rotation", "hflip", "vflip"}
+        )
+
+        merge(STATE["config"], body)
         if errors:
             return self.err("bad_request",
                             "invalid config: numeric value for string field(s): "
                             + ", ".join(sorted(errors)), 400)
+        if geometry_preserving:
+            new_rot = int(STATE["config"].get("camera", {}).get("rotation", 0) or 0)
+            if (old_rot % 180) == (new_rot % 180):
+                return self.ok({"applied": "camera_restart"})
         return self.ok({"applied": "restart"})
 
     # ── media stubs ─────────────────────────────────────────────────
@@ -634,8 +669,11 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def jpeg_frame(self, w=320, h=180):
-        # Tiny valid JPEG (1x1 gray) repeated is fine for smoke purposes.
-        return b"\xff\xd8\xff\xd9"
+        # A REAL decodable JPEG: the old SOI+EOI stub (\xff\xd8\xff\xd9)
+        # fails decode on every multipart frame, which drove <img> error
+        # feedback loops in the browser harnesses (found while debugging
+        # the cameras flip check — see tools/ux_visual_check.py).
+        return _GRAY_JPEG
 
     def serve_jpeg(self):
         body = self.jpeg_frame()
