@@ -90,6 +90,7 @@ CSRF 契约：所有 `POST/PUT/DELETE/PATCH` 到 `/api/*`（auth 族除外：log
   "devices": false,
   "mjpeg": true,
   "mse": true,
+  "substream": false,
   "webrtc": false,
   "events": ["param_changed", "ai_detection"],
   "config_apply": {"default": "restart", "sections": {"imaging": "immediate"}},
@@ -107,6 +108,7 @@ CSRF 契约：所有 `POST/PUT/DELETE/PATCH` 到 `/api/*`（auth 族除外：log
 - `ai_models`：设备带模型注册表并支持运行时热切换（§4.6 的模型清单 / 激活端点）。仅在 `ai:true` 时有意义；缺省视为 `false`，前端隐藏模型切换 UI。
 - `ai_upload`：设备允许运行时上传/删除模型文件（§4.6 的 POST/DELETE）。仅在 `ai_models:true` 时有意义；缺省视为 `false`。设备侧以配置开关（如 `ai.allow_upload`，默认关）控制——模型文件是对推理引擎的不可信输入，生产环境应仅在需要时开启。
 - `mjpeg` / `mse`：对应流端点存在（前端回落链 MSE → MJPEG → 快照轮询）。
+- `substream`：设备提供低分辨率省流子码流的 MSE 端点（§4.1 `stream.sub.mse`，v1 同版本加法 2026-09-26）。仅在 `mse:true` 时有意义；缺省视为 `false`，前端不渲染清晰度切换。子码流与主码流并存——主码流（录像 / RTSP / ONVIF 主 Profile / GB28181）不受影响。
 - `events`：SSE 实际会推送的事件词汇表（§6）。
 - `config_apply`：`"restart"`（写后需进程重启生效）/ `"immediate"`（立即生效），按配置节细化；节未列出时用 `default`。前端应在每个配置节标题处标注其生效时机，并在改动了 `restart` 节后向用户提供重启入口（§5.1）。可选布尔 `auto`（缺省 `false`）：为 `true` 时（Go 方言）改动 `restart` 节的**保存会使设备自动立即自重启**（保存响应即带 `applied:"restart"`），前端应进入统一重启等待流程（提示→轮询 `/api/health`→恢复后自动重载），而不是展示手动重启入口。同版本加法（2026-09-25）：Go 方言对**几何不变**的相机节变更（flips、0↔180、90↔270）不再整进程自重启，保存响应为 `applied:"camera_restart"`（就地重建采集/编码管线，见 §5 PUT 行注记）——前端对 `camera_restart` **不得**进入重启等待流程，直播页应改走流重建周期（stop→start）。
 - `restart`：设备支持 `POST /api/system/restart`（§5.1）。
@@ -191,6 +193,7 @@ Camera 文档：
 | GET | `/api/cameras/{id}/snapshot` | JPEG 快照（`image/jpeg`），需认证 |
 | GET | `/api/cameras/{id}/live` | MJPEG 流（`multipart/x-mixed-replace; boundary=...`），需认证；能力 `mjpeg` |
 | GET | `/api/cameras/{id}/stream.mse` | chunked HTTP fMP4（`video/mp4`），服务端复用、首段为 init segment，需认证；能力 `mse`。客户端用 `fetch` + ReadableStream 追加 MediaSource |
+| GET | `/api/cameras/{id}/stream.sub.mse` | 同 `stream.mse` 的 chunked fMP4 契约（init segment 先行、§4.1 无缝重连契约同适用），但携带**低分辨率省流子码流**（如 640×360@15、低码率 H.264）；需认证；能力 `substream`。v1 同版本加法（2026-09-26）。设备未启用子码流时 404 |
 
 MSE 流细则：init segment（`ftyp`+`moov`）只发一次，随后每访问单元一个 `moof`+`mdat`；新订阅者需等待关键帧再开始，init segment 需重发。断连后客户端重连即可（服务端是无状态推流）。
 
@@ -335,6 +338,8 @@ MSE 流细则：init segment（`ftyp`+`moov`）只发一次，随后每访问单
 
 18. **ONVIF Pull-Point 事件方言（三端，2026-09-20 起）**：`onvif.events_enabled`（bool，缺省 `true`；rs 为 TOML `[onvif].events_enabled`、go 为 YAML `onvif.events_enabled`、notebook 为 `protocols.onvif.events_enabled` SQLite 键——旧库缺行按 `true` 解析）启用 ONVIF 事件服务：AI 检测上升沿在既有 GB 告警 NOTIFY 与 §6 `alarm` SSE 之外，再发布 `tns1:VideoSource/MotionAlarm`（`Source`=相机 id——Pi 设备恒 `"0"`、notebook 为相机 UUID；`State` 恒 `true`（上升沿）；`Targets`=目标数）给持有 Pull-Point 订阅的 NVR（无人订阅安全 no-op）。事件端点：设备 service 同址应答 `CreatePullPointSubscription` 等，订阅子树 `/onvif/events_service/sub/<id>`（PullMessages/Renew/Unsubscribe）。**同一变更**：§6 `alarm` SSE 事件的通告门控从「GB28181 启用」改为「AI 启用」——告警桥接与 GB28181 解耦，SSE/ONVIF 告警不再要求 GB 启用（GB NOTIFY 仍自然门控于平台订阅）。
 19. **设备级旋转（rotation，2026-09-24 起）**：`rotation`（整数 `0|90|180|270`，顺时针度数；90=顺时针、270=逆时针）与 #9 的翻转同为**烘焙进编码流**的设备级变换——对 RTSP/ONVIF/GB28181/录像/快照统一生效，90/270 时流分辨率宽高互换（ONVIF Profile、`/api/status` 的 `resolution` 等对外宣告同步互换；GB28181/RTSP 分辨率随 SPS 自洽）。历史注记：该键此前未入本规范、仅被前端当作显示用 CSS 旋转消费——2026-09-24 起语义升级为烘焙进流，前端 CSS 旋转消费已同步移除（否则与流内旋转叠加成双重旋转）；直播页的 hflip/vflip 本地显示开关（localStorage）维持独立。配置位置方言：rs 为 `/api/config` 的 `camera.rotation`（重启生效，软件像素转置）；Go 为同名字段（重启生效；rpicamvid 模式 0/180 经 rpicam-vid `--rotation`（libcamera 翻转）烘焙、**90/270 自动切换裸 YUV420 子进程管线**——树莓派 libcamera（vc4/PiSP）不支持 transpose 变换，故子进程出原始 I420 帧、Go 进程内转置后经 V4L2 M2M 硬编（ffmpeg 兜底）——0/180 保持 rpicam-vid H.264 硬编直通零额外 CPU；v4l2 模式为 Go 侧像素转置（全四档）；mtxrpicam/rtsp 模式不支持非 0 值——配置校验拒绝）；notebook 为每相机 `PUT /api/cameras/{id}` 的 `config.rotation`（非法值 400；相机流 (重)启时生效，前端相机卡片提供旋转按钮（0→90→180→270 循环）并自动 stop→start）；**前端在实时页工具栏亦提供设备级旋转按钮**（三方言同形：notebook 对当前相机走卡片同款 stop→start 周期并原地重建直播；Pi 方言 PUT 后按响应分叉——Go 几何不变档（0↔180、90↔270、flips）为 `applied:"camera_restart"` 就地 stop→start 重建直播（服务进程存活），Go 跨几何档（如 0↔90）随自重启流恢复、rs 一律经 §5.1 显式重启后整页恢复——与仅显示用的 hflip/vflip 本地按钮相互独立）。GB28181 平台的 DeviceConfig FrameMirror（A.2.1.22）只覆盖翻转轴、不含旋转，运行时镜像与静态旋转按 #9 次序组合。
+
+20. **低分辨率省流子码流（substream，2026-09-26 起）**：`capabilities.substream=true` 时设备并存两路 H.264——主码流（原分辨率/码率，继续供录像 / RTSP 主挂载 / ONVIF 主 Profile / GB28181）与子码流（约 640×360@15、低码率，供 `stream.sub.mse`、RTSP 子挂载 `/sub`、ONVIF 副 Profile token `sub`）。子码流由主采集帧降采样后经第二编码会话产出（水印/翻转/旋转已在主采集帧上烘焙，子码流自然继承）。子码流不录像、不接 GB28181、AI 与快照仍走主码流/原始帧。配置位置方言：rs 为 TOML `[camera.substream]`（`enabled` 缺省 `false`、`width`/`height`/`fps`/`bitrate`；重启生效）；Go 为 YAML `camera.substream.*` 同键同默认（重启生效；**rpicamvid 模式仅在 YUV 管线（rotation 90/270）与 v4l2 模式下可用**——0/180 的 H.264 直编管线无进程内帧可降采样，配置校验拒绝并在日志说明；`enabled=true` 但模式不支持时 `capabilities.substream=false`）；notebook 为每相机 `config.substream`（相机流 (重)启时生效）。前端：直播工具栏提供清晰度切换（主/子），选择持久化 localStorage（缺省主），仅 `substream:true` 时渲染；切换 = 重建 MSE 订阅（stop→start 同款周期）。
 
 ## 8. 附录 B：本规范取代的旧端点（迁移对照）
 

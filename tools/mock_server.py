@@ -110,6 +110,7 @@ CAPS = {
     "devices": True,
     "mjpeg": True,
     "mse": True,
+    "substream": True,
     "webrtc": False,
     "events": ["camera_added", "camera_offlined", "param_changed", "ai_detection",
                "ai_model_changed", "recording", "status", "alarm"],
@@ -208,6 +209,7 @@ def _log_entries():
 
 def _request_entries():
     routes = [("GET", "/api/status", 200), ("GET", "/api/cameras/0/stream.mse", 200),
+              ("GET", "/api/cameras/0/stream.sub.mse", 200),
               ("GET", "/api/metrics/summary", 200), ("POST", "/api/auth/login", 401),
               ("GET", "/api/detections", 200)]
     out = []
@@ -453,6 +455,10 @@ class Handler(BaseHTTPRequestHandler):
             if sub == "live":
                 return self.serve_mjpeg()
             if sub == "stream.mse":
+                return self.serve_mse()
+            if sub == "stream.sub.mse":
+                # Substream stub (SPEC appendix A #20): same fMP4 hold-open
+                # shape as the main endpoint.
                 return self.serve_mse()
         if path == "/api/ptz/status":
             return self.ok(STATE["ptz"])
