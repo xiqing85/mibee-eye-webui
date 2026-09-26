@@ -194,6 +194,8 @@ Camera 文档：
 
 MSE 流细则：init segment（`ftyp`+`moov`）只发一次，随后每访问单元一个 `moof`+`mdat`；新订阅者需等待关键帧再开始，init segment 需重发。断连后客户端重连即可（服务端是无状态推流）。
 
+无缝重连契约（加法，2026-09-26）：fMP4 媒体时间戳（`tfdt`，90 kHz）锚定在**相机流级单调时钟**上——每个新（重）连接的起始时间戳严格晚于此前任何连接已发出的时间戳；每次（重）连接都以 init segment 开头。因此客户端可以在传输中断时**不销毁 MediaSource/SourceBuffer**，透明重取该端点并继续追加（重复 init segment 属规范允许的解码器配置刷新）；跨缓冲空洞时自行跳到下一个 buffered range 即可。服务端不得对该端点施加整体写超时（如 `http.Server.WriteTimeout`）——那会周期性掐断长连接，把客户端打回黑屏整重建。
+
 ### 4.2 相机 CRUD（Extension：`camera_management`）
 
 | 方法 | 路径 | 说明 |
