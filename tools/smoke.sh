@@ -26,14 +26,14 @@ pass=0; fail=0
 ok()   { pass=$((pass+1)); printf '  \033[32mPASS\033[0m %s\n' "$1"; }
 bad()  { fail=$((fail+1)); printf '  \033[31mFAIL\033[0m %s\n' "$1"; }
 check(){ if [ "$2" = "$3" ]; then ok "$1 ($2)"; else bad "$1 (want $3, got $2)"; fi; }
-contains(){ if echo "$2" | grep -q "$3"; then ok "$1"; else bad "$1 (missing '$3' in: $(echo "$2" | head -c 120))"; fi; }
+contains(){ if echo "$2" | grep -Eq "$3"; then ok "$1"; else bad "$1 (missing '$3' in: $(echo "$2" | head -c 120))"; fi; }
 
 echo "== $BASE =="
 
 # 1. health (public)
 r=$($CURL -w '|%{http_code}' "$BASE/api/health"); body=${r%|*}; code=${r##*|}
 check "GET /api/health" "$code" 200
-contains "  health envelope" "$body" '"ok":true'
+contains "  health envelope" "$body" '"ok":\s*true'
 
 # 2. me before login → 401 (login mode) or 503 (first-boot setup mode)
 code=$($CURL -o /dev/null -w '%{http_code}' "$BASE/api/auth/me")
@@ -53,7 +53,7 @@ fi
 
 # 3. me after login
 body=$($CURL -b "$JAR" "$BASE/api/auth/me")
-contains "GET /api/auth/me signed-in" "$body" '"ok":true'
+contains "GET /api/auth/me signed-in" "$body" '"ok":\s*true'
 
 # 4. capabilities
 body=$($CURL -b "$JAR" "$BASE/api/capabilities")
