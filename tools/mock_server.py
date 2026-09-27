@@ -89,7 +89,11 @@ STATE = {
          "source": "builtin", "available": False},
     ],
     "upload": {"allowed": True, "max_bytes": 33554432}},
-    "sse_queues": [],
+    "sse_queues": [],    "zones": [
+        {"name": "door", "kind": "intrusion",
+         "points": [[120, 90], [420, 90], [420, 300], [120, 300]], "dwell_secs": 5},
+    ],
+
 }
 
 CAPS = {
@@ -103,6 +107,12 @@ CAPS = {
     "ai": True,
     "ai_models": True,
     "ai_upload": True,
+    "audio_ai": True,
+    "zones": True,
+    "ocr": True,
+    "voice": True,
+    "chat": True,
+    "vlm": True,
     "ptz": True,
     "hls": False,
     "recording": True,
@@ -113,7 +123,7 @@ CAPS = {
     "substream": True,
     "webrtc": False,
     "events": ["camera_added", "camera_offlined", "param_changed", "ai_detection",
-               "ai_model_changed", "recording", "status", "alarm"],
+               "ai_model_changed", "recording", "status", "alarm", "alarm_description", "voice_transcript", "chat_reply", "zone_event"],
     "config_apply": {"default": "restart", "sections": {"imaging": "immediate",
                                                         # demonstrates the immediate badge on a real config section
                                                         "logging": "immediate",
@@ -375,8 +385,20 @@ class Handler(BaseHTTPRequestHandler):
             return self.put_config()
         if path.startswith("/api/cameras/") and path.endswith("/recording"):
             return self.ok({"active": bool(self.body_json().get("active"))})
+        parts = path.split("/")
+        if path.startswith("/api/cameras/") and len(parts) == 5 and parts[4] == "zones":
+            # Device-level storage: camera existence not required.
+            body = self.body_json()
+            zones = body.get("zones", [])
+            for z in zones:
+                pts = z.get("points") or []
+                need = 2 if z.get("kind") == "line_cross" else 3
+                if len(pts) < need:
+                    return self.err("invalid", f"zone {z.get('name')!r}: needs >= {need} points", 400)
+            STATE["zones"] = zones
+            return self.ok({"zones": zones, "applied": "immediate"})
         if path.startswith("/api/cameras/"):
-            cid = path.split("/")[3]
+            cid = parts[3]
             for cam in STATE["cameras"]:
                 if cam["id"] == cid:
                     cam.update(self.body_json())
@@ -440,6 +462,10 @@ class Handler(BaseHTTPRequestHandler):
                 if cam:
                     return self.ok(cam)
                 return self.err("not_found", "no such camera", 404)
+            if len(parts) == 5 and parts[4] == "zones":
+                # Zones live in device-level storage; serve them even for
+                # camera ids the (stateless) mock no longer lists.
+                return self.ok({"zones": STATE["zones"]})
             if not cam:
                 return self.err("not_found", "no such camera", 404)
             sub = parts[4]
@@ -493,6 +519,9 @@ class Handler(BaseHTTPRequestHandler):
             body = {}
         else:
             body = self.body_json()
+        if path == "/api/chat":
+            text = str(body.get("text") or "")
+            return self.ok({"reply": f"[mock] 收到：{text}"})
         if path == "/api/auth/setup":
             if STATE["setup_done"]:
                 return self.err("bad_request", "already configured", 400)
