@@ -387,9 +387,11 @@ class Handler(BaseHTTPRequestHandler):
             return self.ok({"active": bool(self.body_json().get("active"))})
         parts = path.split("/")
         if path.startswith("/api/cameras/") and len(parts) == 5 and parts[4] == "zones":
-            # Device-level storage: camera existence not required.
+            # Device-level storage: camera existence not required. The
+            # product contract is a bare JSON array; accept the wrapped
+            # form too so older clients stay working.
             body = self.body_json()
-            zones = body.get("zones", [])
+            zones = body if isinstance(body, list) else body.get("zones", [])
             for z in zones:
                 pts = z.get("points") or []
                 need = 2 if z.get("kind") == "line_cross" else 3
