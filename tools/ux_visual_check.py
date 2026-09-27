@@ -269,6 +269,51 @@ with sync_playwright() as p:
     check("ptz: pan value changed", pan_before != pan_after, f"{pan_before} -> {pan_after}")
     shot(pg, "15-ptz-panel", full=True)
 
+    # ── Zones (SPEC appendix A #21): toolbar button + editor ──────────
+    # The loading overlay (z6) intentionally sits above the stream
+    # controls (z5) while the stream builds — wait it out first.
+    pg.wait_for_selector("#stream-loading", state="hidden", timeout=20000)
+    check("zones: edit button visible", pg.locator("#btn-zones-edit").is_visible())
+    pg.click("#btn-zones-edit")
+    pg.wait_for_timeout(600)
+    check("zones: editor opens", pg.locator("#zones-editor").is_visible())
+    check("zones: canvas has size",
+          pg.locator("#zones-edit-canvas").evaluate("c => c.width > 0 && c.height > 0"))
+    check("zones: seeded zone listed", pg.locator("#zones-list li").count() >= 1)
+    # Draw a tripwire: pick the line kind, place two points, commit.
+    pg.select_option("#zones-kind", "line_cross")
+    pg.fill("#zones-name", "ux-line")
+    canvas = pg.locator("#zones-edit-canvas")
+    box = canvas.bounding_box()
+    canvas.click(position={"x": box["width"] * 0.3, "y": box["height"] * 0.3})
+    canvas.click(position={"x": box["width"] * 0.7, "y": box["height"] * 0.7})
+    pg.click("#zones-add")
+    pg.wait_for_timeout(300)
+    check("zones: draft committed to list", pg.locator("#zones-list li").count() >= 2)
+    pg.click("#zones-save")
+    pg.wait_for_timeout(600)
+    check("zones: editor closes after save",
+          not pg.locator("#zones-editor").is_visible())
+    shot(pg, "15b-zones-saved", full=True)
+    pg.click("#btn-zones-edit")
+    pg.wait_for_timeout(400)
+    check("zones: persisted round-trip", pg.locator("#zones-list li").count() >= 2)
+    pg.click("#zones-close")
+    pg.wait_for_timeout(200)
+
+    # ── Chat (SPEC appendix A #22): fab + panel + one exchange ────────
+    check("chat: fab visible", pg.locator("#chat-fab").is_visible())
+    pg.click("#chat-fab")
+    pg.wait_for_timeout(300)
+    check("chat: panel opens", pg.locator("#chat-panel").is_visible())
+    pg.fill("#chat-input", "hello")
+    pg.click("#chat-send")
+    pg.wait_for_timeout(800)
+    check("chat: reply bubble rendered",
+          pg.locator("#chat-log .chat-bubble").count() >= 2)
+    shot(pg, "15c-chat-panel", full=True)
+    pg.click("#chat-close")
+
     # ── Status view ───────────────────────────────────────────────────
     pg.click("#nav .nav-tab[data-view=status]")
     pg.wait_for_timeout(1200)
