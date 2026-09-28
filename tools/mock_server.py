@@ -93,7 +93,14 @@ STATE = {
         {"name": "door", "kind": "intrusion",
          "points": [[120, 90], [420, 90], [420, 300], [120, 300]], "dwell_secs": 5},
     ],
-
+    # Hearing records (SPEC appendix A #24): persistent text records of
+    # what the audio engines recognized.
+    "hearing_records": [
+        {"id": 2, "kind": "voice", "text": "今天天气怎么样", "score": None,
+         "keyword": "小蜜蜂", "timestamp_ms": 1759000002000},
+        {"id": 1, "kind": "sound", "text": "Dog", "score": 0.62,
+         "keyword": "", "timestamp_ms": 1759000001000},
+    ],
 }
 
 CAPS = {
@@ -108,6 +115,7 @@ CAPS = {
     "ai_models": True,
     "ai_upload": True,
     "audio_ai": True,
+    "audio_records": True,
     "zones": True,
     "ocr": True,
     "voice": True,
@@ -412,6 +420,11 @@ class Handler(BaseHTTPRequestHandler):
         path = self.path.split("?")[0]
         if not self.authed():
             return self.err("unauthorized", "not signed in", 401)
+        # Hearing records (SPEC appendix A #24): clear all.
+        if path == "/api/audio/records":
+            removed = len(STATE["hearing_records"])
+            STATE["hearing_records"] = []
+            return self.ok({"applied": "immediate", "removed": removed})
         if path.startswith("/api/cameras/"):
             cid = path.split("/")[3]
             STATE["cameras"] = [c for c in STATE["cameras"] if c["id"] != cid]
@@ -438,6 +451,19 @@ class Handler(BaseHTTPRequestHandler):
     def get_api(self, path):
         if path == "/api/health":
             return self.ok({"status": "ok", "uptime": int(time.time() - START)})
+        if path == "/api/audio/records":
+            from urllib.parse import parse_qs, urlparse
+            q = parse_qs(urlparse(self.path).query)
+            kind = (q.get("kind") or [None])[0]
+            try:
+                limit = min(max(int((q.get("limit") or ["100"])[0]), 1), 500)
+            except ValueError:
+                limit = 100
+            rows = STATE["hearing_records"]
+            if kind in ("sound", "voice"):
+                rows = [r for r in rows if r["kind"] == kind]
+            rows = sorted(rows, key=lambda r: r["timestamp_ms"], reverse=True)
+            return self.ok({"records": rows[:limit], "applied": "immediate"})
         if path == "/api/auth/me":
             if not STATE["setup_done"]:
                 return self.err("setup_required", "initial setup required", 503)
