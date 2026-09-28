@@ -29,6 +29,9 @@ renders panels based on the device's announced `capabilities`.
   AI overlay / PTZ — all projections of the same code).
 - **`tools/mock_server.py`** — a spec-conformant mock API server, so frontend
   development never needs real hardware.
+- **[USER_GUIDE.md](USER_GUIDE.md)** / **[USER_GUIDE.zh-CN.md](USER_GUIDE.zh-CN.md)**
+  — the end-user manual for the embedded web interface (bilingual; applies
+  to every device family member, capability-gated panels included).
 
 ## Development
 
