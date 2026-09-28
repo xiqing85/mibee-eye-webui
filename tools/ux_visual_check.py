@@ -314,6 +314,26 @@ with sync_playwright() as p:
     shot(pg, "15c-chat-panel", full=True)
     pg.click("#chat-close")
 
+    # ── Records view (SPEC appendix A #24): list + filter + clear ─────
+    check("records: tab visible", pg.locator("#nav .nav-tab[data-view=records]").is_visible())
+    pg.click("#nav .nav-tab[data-view=records]")
+    pg.wait_for_timeout(800)
+    check("records: view active", pg.locator("#view-records.active").count() == 1)
+    check("records: seeded rows rendered", pg.locator("#records-list .record-row").count() >= 2)
+    check("records: sound kind badge", pg.locator("#records-list .record-kind.kind-sound").count() >= 1)
+    check("records: voice kind badge", pg.locator("#records-list .record-kind.kind-voice").count() >= 1)
+    pg.select_option("#records-kind", "voice")
+    pg.wait_for_timeout(600)
+    check("records: filter narrows to voice",
+          pg.locator("#records-list .record-row").count() == 1 and
+          pg.locator("#records-list .kind-voice").count() == 1)
+    shot(pg, "15d-records", full=True)
+    pg.click("#records-clear")
+    pg.wait_for_timeout(400)
+    pg.click("#confirm-ok")
+    pg.wait_for_timeout(600)
+    check("records: cleared to empty state", pg.locator("#records-list .record-empty").count() == 1)
+
     # ── Status view ───────────────────────────────────────────────────
     pg.click("#nav .nav-tab[data-view=status]")
     pg.wait_for_timeout(1200)

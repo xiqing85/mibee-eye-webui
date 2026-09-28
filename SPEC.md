@@ -347,6 +347,8 @@ MSE 流细则：init segment（`ftyp`+`moov`）只发一次，随后每访问单
 
 23. **notebook 告警图片描述（VLM，事件触发式，2026-09-28 起）**：`[vlm]` TOML 节（需 `llm` feature 构建——复用 llama.cpp 载体 + `mtmd` 多模态），Qwen3-VL-2B GGUF（text）+ mmproj GGUF（vision projector）。**事件触发**（非轮询）：§6 `alarm` SSE（`source:"ai"`，即视觉告警）触发时抓取该相机的触发帧 JPEG，异步送 VLM 生成一句「发生了什么」描述（贪心、截断于 `max_tokens`）。告警本身**不等描述**（告警时延优先）；描述完成后以**加法扩展**的新 SSE 事件 `alarm_description`（`{camera_id, alarm_timestamp, description, elapsed_s}`）送出，前端按 `camera_id` + `alarm_timestamp` 关联到最近告警展示。配置键：`enabled`（缺省 `false`）、`model_path`、`mmproj_path`、`max_tokens`（100）、`n_ctx`（2048）、`n_threads`（2）、`prompt`（缺省中文安防描述指令）。`capabilities.vlm` 布尔通告（引擎 active 才 true）；events 追加 `alarm_description` 同门控。加载前内存 guardrail（模型 > 可用内存 2/3 拒载，fail-open）。仅工作站档（llama.cpp 需 AVX2+ CPU）；部署自检 CLI：`--selftest-vlm <jpeg>`（描述全链路 JSON）。
 
+24. **notebook 听觉记录（持久文本记录，2026-09-28 起）**：`[audio_ai]` 声音事件与 `[voice]` 语音转写在既有 SSE 通知之外，落成**可查询的持久文本记录**（SQLite `hearing_records` 表，FIFO 封顶 1000 条、插入时修剪；引擎活跃即记录，无独立开关；写入失败只记日志，绝不影响采集/告警管线）。两类记录同构：`{id, kind:"sound"|"voice", text, score, keyword, timestamp_ms}`——声音记录 `kind:"sound"`、`text`=AudioSet 类名（如 `Dog`）、`score`=投票分、`keyword` 空；语音记录 `kind:"voice"`、`text`=转写文本、`keyword`=命中唤醒词、`score` 空。端点：`GET /api/audio/records?limit=N&kind=sound|voice`（缺省 limit=100、上限 500，按 `timestamp_ms` 倒序）→ `{"records":[…]}`；`DELETE /api/audio/records` → `{"applied":"immediate"}`（清空全部）。会话认证 + CSRF 同 §2。`capabilities.audio_records` 布尔通告（= `audio_ai` 或 `voice` 任一 active）；无新 SSE 事件（复用既有 `alarm`/`voice_transcript`）。
+
 ## 8. 附录 B：本规范取代的旧端点（迁移对照）
 
 | 旧端点（项目） | 新端点 |
