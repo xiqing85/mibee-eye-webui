@@ -355,6 +355,42 @@ with sync_playwright() as p:
           pg.locator("#speakers-list .speaker-chip").count() == 1 and
           "mickey" in pg.locator("#speakers-list .speaker-chip").inner_text())
 
+    # ── Meetings card (SPEC appendix A #27): seeded row + live cycle ──
+    check("meetings: card visible", pg.locator("#meetings-card:not(.hidden)").count() == 1)
+    check("meetings: seeded done row rendered",
+          pg.locator("#meetings-list .meeting-row").count() == 1 and
+          "已完成" in pg.locator("#meetings-list .meeting-row .record-kind").inner_text())
+    pg.click("#meeting-start")
+    pg.wait_for_timeout(700)
+    check("meetings: recording indicator visible",
+          pg.locator("#meeting-rec:not(.hidden)").count() == 1)
+    check("meetings: stop button swapped in",
+          pg.locator("#meeting-stop:not(.hidden)").count() == 1 and
+          pg.locator("#meeting-start.hidden").count() == 1)
+    check("meetings: recording row in list",
+          "录音中" in pg.locator("#meetings-list .meeting-row").first.inner_text())
+    shot(pg, "15f-meeting-rec", full=True)
+    pg.click("#meeting-stop")
+    pg.wait_for_timeout(700)
+    check("meetings: indicator cleared after stop",
+          pg.locator("#meeting-rec.hidden").count() == 1 and
+          pg.locator("#meeting-start:not(.hidden)").count() == 1)
+    check("meetings: processing row in list",
+          "处理中" in pg.locator("#meetings-list .meeting-row").first.inner_text())
+    # The mock finalizes 2s after stop; the 4s safety poll re-renders.
+    pg.wait_for_timeout(4800)
+    check("meetings: done row after async pipeline",
+          "已完成" in pg.locator("#meetings-list .meeting-row").first.inner_text())
+    # Expand the minutes of the newest (first) row.
+    pg.locator("#meetings-list .meeting-row").first.locator("button", has_text="展开纪要").click()
+    pg.wait_for_timeout(700)
+    check("meetings: segments rendered on expand",
+          pg.locator("#meetings-list .meeting-seg").count() >= 2)
+    check("meetings: named + anonymous speaker labels",
+          "mickey" in pg.locator("#meetings-list .meeting-detail").inner_text() and
+          "说话人 2" in pg.locator("#meetings-list .meeting-detail").inner_text())
+    shot(pg, "15g-meeting-minutes", full=True)
+
     pg.select_option("#records-kind", "voice")
     pg.wait_for_timeout(600)
     check("records: filter narrows to voice",
