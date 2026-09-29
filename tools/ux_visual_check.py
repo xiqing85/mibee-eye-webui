@@ -322,6 +322,39 @@ with sync_playwright() as p:
     check("records: seeded rows rendered", pg.locator("#records-list .record-row").count() >= 2)
     check("records: sound kind badge", pg.locator("#records-list .record-kind.kind-sound").count() >= 1)
     check("records: voice kind badge", pg.locator("#records-list .record-kind.kind-voice").count() >= 1)
+    check("records: speaker badge on attributed voice row",
+          pg.locator("#records-list .record-kind.kind-speaker").count() == 1 and
+          pg.locator("#records-list .kind-speaker").inner_text().strip() == "mickey")
+
+    # ── Speakers card (SPEC appendix A #25): seeded chip + enroll flow ─
+    check("speakers: card visible", pg.locator("#speakers-card:not(.hidden)").count() == 1)
+    check("speakers: seeded chip rendered", pg.locator("#speakers-list .speaker-chip").count() == 1)
+    check("speakers: chip shows sample count",
+          "×3" in pg.locator("#speakers-list .speaker-samples").inner_text())
+    # Enroll "alice" with 3 samples: the mock collects one per GET poll,
+    # the frontend polls every 1.5s and commits when full.
+    pg.fill("#speaker-name", "alice")
+    pg.click("#speaker-enroll")
+    pg.wait_for_timeout(1000)
+    check("speakers: progress visible during enrollment",
+          pg.locator("#speaker-progress:not(.hidden)").count() == 1)
+    pg.wait_for_timeout(5500)
+    check("speakers: enrollment auto-committed",
+          pg.locator("#speakers-list .speaker-chip").count() == 2 and
+          any("alice" in c.inner_text()
+              for c in pg.locator("#speakers-list .speaker-chip").all()))
+    check("speakers: progress hidden after commit",
+          pg.locator("#speaker-progress.hidden").count() == 1)
+    shot(pg, "15e-speakers", full=True)
+    # Delete the alice chip; mickey stays.
+    pg.locator("#speakers-list .speaker-chip", has_text="alice").locator(".speaker-del").click()
+    pg.wait_for_timeout(400)
+    pg.click("#confirm-ok")
+    pg.wait_for_timeout(600)
+    check("speakers: delete removes only the named profile",
+          pg.locator("#speakers-list .speaker-chip").count() == 1 and
+          "mickey" in pg.locator("#speakers-list .speaker-chip").inner_text())
+
     pg.select_option("#records-kind", "voice")
     pg.wait_for_timeout(600)
     check("records: filter narrows to voice",

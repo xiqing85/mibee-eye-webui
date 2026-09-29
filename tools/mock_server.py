@@ -97,10 +97,17 @@ STATE = {
     # what the audio engines recognized.
     "hearing_records": [
         {"id": 2, "kind": "voice", "text": "今天天气怎么样", "score": None,
-         "keyword": "小蜜蜂", "timestamp_ms": 1759000002000},
+         "keyword": "小蜜蜂", "speaker": "mickey", "timestamp_ms": 1759000002000},
         {"id": 1, "kind": "sound", "text": "Dog", "score": 0.62,
-         "keyword": "", "timestamp_ms": 1759000001000},
+         "keyword": "", "speaker": "", "timestamp_ms": 1759000001000},
     ],
+    # Voiceprint speakers (SPEC appendix A #25). The mock auto-collects
+    # one sample per second while an enrollment session is in flight.
+    "voice_speakers": [
+        {"id": 1, "name": "mickey", "dim": 192, "count": 3,
+         "created_at": "2026-09-29 06:00:00"},
+    ],
+    "enrollment": None,
 }
 
 CAPS = {
@@ -116,6 +123,8 @@ CAPS = {
     "ai_upload": True,
     "audio_ai": True,
     "audio_records": True,
+    "voice_speakers": True,
+    "decision": True,
     "zones": True,
     "ocr": True,
     "voice": True,
@@ -425,6 +434,13 @@ class Handler(BaseHTTPRequestHandler):
             removed = len(STATE["hearing_records"])
             STATE["hearing_records"] = []
             return self.ok({"applied": "immediate", "removed": removed})
+        if path.startswith("/api/voice/speakers/"):
+            name = path[len("/api/voice/speakers/"):]
+            before = len(STATE["voice_speakers"])
+            STATE["voice_speakers"] = [sp for sp in STATE["voice_speakers"] if sp["name"] != name]
+            if len(STATE["voice_speakers"]) == before:
+                return self.err("not_found", f"speaker {name!r} not found", 404)
+            return self.ok({"applied": "immediate", "removed": name})
         if path.startswith("/api/cameras/"):
             cid = path.split("/")[3]
             STATE["cameras"] = [c for c in STATE["cameras"] if c["id"] != cid]
@@ -464,6 +480,15 @@ class Handler(BaseHTTPRequestHandler):
                 rows = [r for r in rows if r["kind"] == kind]
             rows = sorted(rows, key=lambda r: r["timestamp_ms"], reverse=True)
             return self.ok({"records": rows[:limit], "applied": "immediate"})
+        if path == "/api/voice/speakers":
+            if STATE["enrollment"] is not None:
+                STATE["enrollment"]["collected"] = min(
+                    STATE["enrollment"]["collected"] + 1, STATE["enrollment"]["needed"])
+            return self.ok({
+                "speakers": STATE["voice_speakers"],
+                "enrollment": STATE["enrollment"],
+                "capable": True,
+            })
         if path == "/api/auth/me":
             if not STATE["setup_done"]:
                 return self.err("setup_required", "initial setup required", 503)
@@ -550,6 +575,34 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/chat":
             text = str(body.get("text") or "")
             return self.ok({"reply": f"[mock] 收到：{text}"})
+        # Voiceprint speakers (SPEC appendix A #25)
+        if path == "/api/voice/speakers":
+            name = str(body.get("name") or "").strip()
+            utterances = int(body.get("utterances") or 3)
+            if not name or len(name) > 32:
+                return self.err("bad_request", "name must be 1..=32 bytes", 400)
+            if not 1 <= utterances <= 10:
+                return self.err("bad_request", "utterances must be 1..=10", 400)
+            if any(sp["name"] == name for sp in STATE["voice_speakers"]):
+                return self.err("bad_request", f"speaker {name!r} already enrolled — delete it first", 400)
+            if STATE["enrollment"] is not None:
+                return self.err("bad_request", "an enrollment session is already in progress", 400)
+            STATE["enrollment"] = {"name": name, "collected": 0, "needed": utterances}
+            return self.ok({"started": STATE["enrollment"]})
+        if path == "/api/voice/speakers/commit":
+            enr = STATE["enrollment"]
+            if enr is None or enr["collected"] < enr["needed"]:
+                return self.err("bad_request", "no completed enrollment session", 400)
+            STATE["enrollment"] = None
+            STATE["voice_speakers"].append({
+                "id": len(STATE["voice_speakers"]) + 1, "name": enr["name"],
+                "dim": 192, "count": enr["needed"],
+                "created_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+            })
+            return self.ok({"enrolled": enr["name"], "samples": enr["needed"], "dim": 192})
+        if path == "/api/voice/speakers/cancel":
+            STATE["enrollment"] = None
+            return self.ok({"applied": "immediate", "enrollment": None})
         if path == "/api/auth/setup":
             if STATE["setup_done"]:
                 return self.err("bad_request", "already configured", 400)
