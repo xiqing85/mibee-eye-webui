@@ -108,6 +108,23 @@ STATE = {
          "created_at": "2026-09-29 06:00:00"},
     ],
     "enrollment": None,
+    # Meetings (SPEC appendix A #27): the mock simulates the async
+    # pipeline — stop flips the row to processing with a wall-clock
+    # marker; the next list/get after 2 s finalizes it with segments.
+    "meetings": [
+        {"id": 1, "started_at_ms": 1758998400000, "ended_at_ms": 1758999000000,
+         "duration_ms": 600000, "status": "done", "num_speakers": 2,
+         "num_segments": 2, "audio_path": "", "error": ""},
+    ],
+    "meeting_segments": {
+        1: [
+            {"start_ms": 0, "end_ms": 32000, "speaker_index": 0,
+             "speaker": "mickey", "text": "这次发布我们分三步走。"},
+            {"start_ms": 35000, "end_ms": 61000, "speaker_index": 1,
+             "speaker": "", "text": "好的，我负责测试那一块。"},
+        ],
+    },
+    "meeting_seq": 1,
 }
 
 CAPS = {
@@ -125,6 +142,7 @@ CAPS = {
     "audio_records": True,
     "voice_speakers": True,
     "decision": True,
+    "meeting": True,
     "zones": True,
     "ocr": True,
     "voice": True,
@@ -140,7 +158,7 @@ CAPS = {
     "substream": True,
     "webrtc": False,
     "events": ["camera_added", "camera_offlined", "param_changed", "ai_detection",
-               "ai_model_changed", "recording", "status", "alarm", "alarm_description", "voice_transcript", "chat_reply", "zone_event"],
+               "ai_model_changed", "recording", "status", "alarm", "alarm_description", "voice_transcript", "chat_reply", "zone_event", "voice_decision", "meeting_state"],
     "config_apply": {"default": "restart", "sections": {"imaging": "immediate",
                                                         # demonstrates the immediate badge on a real config section
                                                         "logging": "immediate",
@@ -425,6 +443,21 @@ class Handler(BaseHTTPRequestHandler):
             return self.err("not_found", "no such camera", 404)
         self.send_error(404)
 
+    def finalize_mock_meetings(self):
+        """Flip processing rows to done 2s after stop (simulated async
+        pipeline) with mock segments."""
+        for m in STATE["meetings"]:
+            if m["status"] == "processing" and time.time() - m.get("_processing_since", 0) >= 2:
+                m["status"] = "done"
+                m["num_speakers"] = 2
+                m["num_segments"] = 2
+                STATE["meeting_segments"][m["id"]] = [
+                    {"start_ms": 0, "end_ms": m["duration_ms"] // 2, "speaker_index": 0,
+                     "speaker": "mickey", "text": "[mock] 会议的第一段发言。"},
+                    {"start_ms": m["duration_ms"] // 2 + 1000, "end_ms": m["duration_ms"],
+                     "speaker_index": 1, "speaker": "", "text": "[mock] 第二位说话人的回复。"},
+                ]
+
     def do_DELETE(self):
         path = self.path.split("?")[0]
         if not self.authed():
@@ -434,6 +467,17 @@ class Handler(BaseHTTPRequestHandler):
             removed = len(STATE["hearing_records"])
             STATE["hearing_records"] = []
             return self.ok({"applied": "immediate", "removed": removed})
+        if path.startswith("/api/meetings/"):
+            try:
+                mid = int(path.rsplit("/", 1)[1])
+            except ValueError:
+                return self.err("not_found", "bad meeting id", 404)
+            before = len(STATE["meetings"])
+            STATE["meetings"] = [m for m in STATE["meetings"] if m["id"] != mid]
+            STATE["meeting_segments"].pop(mid, None)
+            if len(STATE["meetings"]) == before:
+                return self.err("not_found", "meeting not found", 404)
+            return self.ok({"applied": "immediate", "deleted": mid})
         if path.startswith("/api/voice/speakers/"):
             name = path[len("/api/voice/speakers/"):]
             before = len(STATE["voice_speakers"])
@@ -480,6 +524,21 @@ class Handler(BaseHTTPRequestHandler):
                 rows = [r for r in rows if r["kind"] == kind]
             rows = sorted(rows, key=lambda r: r["timestamp_ms"], reverse=True)
             return self.ok({"records": rows[:limit], "applied": "immediate"})
+        if path == "/api/meetings":
+            self.finalize_mock_meetings()
+            return self.ok({"meetings": sorted(STATE["meetings"],
+                                               key=lambda m: m["started_at_ms"], reverse=True)})
+        if path.startswith("/api/meetings/") and path.count("/") == 3:
+            try:
+                mid = int(path.rsplit("/", 1)[1])
+            except ValueError:
+                return self.err("not_found", "bad meeting id", 404)
+            self.finalize_mock_meetings()
+            row = next((m for m in STATE["meetings"] if m["id"] == mid), None)
+            if row is None:
+                return self.err("not_found", "meeting not found", 404)
+            return self.ok({"meeting": row,
+                            "segments": STATE["meeting_segments"].get(mid, [])})
         if path == "/api/voice/speakers":
             if STATE["enrollment"] is not None:
                 STATE["enrollment"]["collected"] = min(
@@ -589,6 +648,32 @@ class Handler(BaseHTTPRequestHandler):
                 return self.err("bad_request", "an enrollment session is already in progress", 400)
             STATE["enrollment"] = {"name": name, "collected": 0, "needed": utterances}
             return self.ok({"started": STATE["enrollment"]})
+        if path == "/api/meetings/start":
+            if any(m["status"] in ("recording", "processing") for m in STATE["meetings"]):
+                return self.err("conflict", "a meeting is already recording", 409)
+            STATE["meeting_seq"] += 1
+            now = int(time.time() * 1000)
+            STATE["meetings"].append({"id": STATE["meeting_seq"], "started_at_ms": now,
+                                      "ended_at_ms": None, "duration_ms": None,
+                                      "status": "recording", "num_speakers": None,
+                                      "num_segments": None, "audio_path": "", "error": ""})
+            return self.ok({"id": STATE["meeting_seq"], "started_at_ms": now}, status=201)
+        if path.startswith("/api/meetings/") and path.endswith("/stop"):
+            try:
+                mid = int(path.rsplit("/", 2)[1])
+            except ValueError:
+                return self.err("not_found", "bad meeting id", 404)
+            row = next((m for m in STATE["meetings"] if m["id"] == mid), None)
+            if row is None:
+                return self.err("not_found", "meeting not found", 404)
+            if row["status"] != "recording":
+                return self.err("conflict", "not recording", 409)
+            now = int(time.time() * 1000)
+            row["status"] = "processing"
+            row["ended_at_ms"] = now
+            row["duration_ms"] = now - row["started_at_ms"]
+            row["_processing_since"] = time.time()
+            return self.ok({"id": mid, "status": "processing"})
         if path == "/api/voice/speakers/commit":
             enr = STATE["enrollment"]
             if enr is None or enr["collected"] < enr["needed"]:
