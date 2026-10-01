@@ -519,6 +519,24 @@ with sync_playwright() as p:
     # on the preview view with two cameras, where the live toolbar is widest.
     overflow_pv = mp.evaluate("document.documentElement.scrollWidth - document.documentElement.clientWidth")
     check("mobile: no horizontal overflow (preview)", overflow_pv <= 0, f"{overflow_pv}px overflow")
+    # Overlay-canvas layout contract (2026-10-01 regression): the overlay
+    # canvases must be absolutely positioned. An in-flow #zones-overlay fed
+    # its device-pixel intrinsic size back into renderZonesOverlay's
+    # wrapper.clientHeight read — at dpr>1 every ai_detection event doubled
+    # the wrapper height until the page whited out. Reproduce the sizing
+    # loop exactly and assert the wrapper cannot grow.
+    pos = mp.evaluate("getComputedStyle(document.getElementById('zones-overlay')).position")
+    check("mobile: zones overlay out of flow", pos == "absolute", f"position={pos}")
+    growth = mp.evaluate("""() => {const w = document.querySelector('.stream-wrapper');
+        const zs = document.getElementById('zones-overlay');
+        const dpr = window.devicePixelRatio || 1;
+        const before = Math.round(w.getBoundingClientRect().height);
+        for (let i = 0; i < 5; i++) {
+            zs.width = Math.round(w.clientWidth * dpr);
+            zs.height = Math.round(w.clientHeight * dpr);
+        }
+        return Math.round(w.getBoundingClientRect().height) - before}""")
+    check("mobile: overlay sizing loop cannot grow the wrapper", growth == 0, f"grew {growth}px")
     mp.click("#nav-mobile .nav-tab[data-view=cameras]")
     mp.wait_for_timeout(1000)
     shot(mp, "31-mobile-cameras", full=True)
