@@ -635,7 +635,11 @@ class Handler(BaseHTTPRequestHandler):
             body = self.body_json()
         if path == "/api/chat":
             text = str(body.get("text") or "")
-            return self.ok({"reply": f"[mock] 收到：{text}"})
+            # SPEC appendix A #29: vision=true → grounded "vlm", else the
+            # mock always claims scene grounding (it fakes detections).
+            vision = bool(body.get("vision"))
+            grounded = "vlm" if vision else "scene"
+            return self.ok({"reply": f"[mock:{grounded}] 收到：{text}", "grounded": grounded})
         # Voiceprint speakers (SPEC appendix A #25)
         if path == "/api/voice/speakers":
             name = str(body.get("name") or "").strip()
