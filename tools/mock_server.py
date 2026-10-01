@@ -99,9 +99,10 @@ STATE = {
     # what the audio engines recognized.
     "hearing_records": [
         {"id": 2, "kind": "voice", "text": "今天天气怎么样", "score": None,
-         "keyword": "小蜜蜂", "speaker": "mickey", "timestamp_ms": 1759000002000},
+         "keyword": "小蜜蜂", "speaker": "mickey", "timestamp_ms": 1759000002000,
+         "scene": "实时检测：1×person（中间）"},
         {"id": 1, "kind": "sound", "text": "Dog", "score": 0.62,
-         "keyword": "", "speaker": "", "timestamp_ms": 1759000001000},
+         "keyword": "", "speaker": "", "timestamp_ms": 1759000001000, "scene": ""},
     ],
     # Voiceprint speakers (SPEC appendix A #25). The mock auto-collects
     # one sample per second while an enrollment session is in flight.

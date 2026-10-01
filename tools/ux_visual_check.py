@@ -335,6 +335,8 @@ with sync_playwright() as p:
     check("records: seeded rows rendered", pg.locator("#records-list .record-row").count() >= 2)
     check("records: sound kind badge", pg.locator("#records-list .record-kind.kind-sound").count() >= 1)
     check("records: voice kind badge", pg.locator("#records-list .record-kind.kind-voice").count() >= 1)
+    check("records: scene badge on correlated row",
+          pg.locator("#records-list .record-kind.kind-scene").count() >= 1)
     check("records: speaker badge on attributed voice row",
           pg.locator("#records-list .record-kind.kind-speaker").count() == 1 and
           pg.locator("#records-list .kind-speaker").inner_text().strip() == "mickey")
