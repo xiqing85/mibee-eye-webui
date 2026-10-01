@@ -361,6 +361,20 @@ MSE 流细则：init segment（`ftyp`+`moov`）只发一次，随后每访问单
 
 
 30. **notebook 对话场景能力包（连续对话/任务注入/关联记录/三语 TTS/资源分层，2026-10-01 起）**：在 #29 场景接地之上扩展五组能力，全部加法、fail-open。**A. 系统回合注入块**——`POST /api/chat` 与语音自动应答的系统回合在【画面】外可再携带两个块：`【本机】`（恒注入：本地时间〔含星期与时区〕、开机时长、系统负载、可用内存、相机数与状态概要——"问时间"类问题据此作答，不再凭模型幻觉）；`【联网】`（意图门控 + 配置开关：用户话语含天气/weather 等意图且 `[tools] weather_enabled=true` 时，经 wttr.in 拉取 `weather_city` 当前天气注入；拉取失败/超时/未启用 → 无该块，模型如实说不知道）。新配置 `[tools]`：`weather_enabled`（缺省 `false`）、`weather_city`（缺省空）、`timeout_secs`（5）。**B. 连续对话**——新配置 `[voice] follow_up_window_secs`（缺省 0=关；>0 时每次语音应答结束后开启等长跟问窗口，窗口内**无需唤醒词**，silero VAD 端点检测整句，静音即转写应答；窗口过期回到唤醒词模式）与 `vad_model`（缺省 `models/voice/vad/silero_vad.onnx`，缺文件时跟问自动禁用并 WARN）；语音应答带**会话历史**（最近 120 秒内的问答对作为上下文传入）。`voice_transcript` SSE 事件加法新增 `follow_up: bool`（true=跟问窗口内捕获）与 `scene` 字段（见 C）。**C. 听见×看见关联记录**——`hearing_records` 表加列 `scene`（TEXT NOT NULL DEFAULT ''，语音交互发生瞬间的【画面】摘要，sound 告警同）与 `media_ref`（TEXT NOT NULL DEFAULT ''，录像维度：该相机本地录像开启时，填写**覆盖该事件时间戳的当前 MP4 分段文件路径**；录像未开/分段毫秒级轮转竞态/流已停 → 空串）；`GET /api/audio/records` 条目加法返回 `scene` 与 `media_ref`。**D. 三语 TTS**——`[tts]` 新增可选 `yue_model`/`yue_lexicon`/`yue_dict_dir` 与 `en_model`/`en_lexicon`（键缺省空=仅主模型）；`speak` 按回复文本语言选择模型（粤语特征字→yue、纯 ASCII→en、否则主模型），无对应模型回落主模型（如实用普通话声读粤语字）。**E. 资源分层**——新配置 `[resources] auto_tier`（缺省 `false`）与 `[llm] model_path_mid`/`model_path_lite`（缺省空=回落 `model_path`）；auto_tier 开启时按启动时可用内存选档：≥10GiB→`model_path`（full）、≥4GiB→mid、否则 lite；`capabilities` 加法新增 `llm_tier: "full"|"mid"|"lite"|"manual"`。会话认证 + CSRF 同 §2。
+31. **notebook 场景能力 Web 可配置（`scene` 配置节，2026-10-02 起）**：`GET/PUT /api/config`（§5）文档加法新增顶层节 `scene`，承载 #30 场景能力中**可在线调整**的键，全部**热生效**（`config_apply` 对该节为 `immediate`，无需重启）：
+    ```json
+    "scene": {
+      "voice": { "follow_up_window_secs": 12.0 },
+      "tools": { "weather_enabled": true, "weather_city": "Guangzhou", "weather_timeout_secs": 5 }
+    }
+    ```
+    - `scene.voice.follow_up_window_secs`（number ≥0，0=关闭跟问窗口）：写后**下一次语音应答结束**即按新窗口时长开启；运行时改 0 可即时关闭跟问（改回 >0 恢复——VAD 引擎按启动配置构建，启动时窗口为 0 的进程需重启才能获得 VAD）。
+    - `scene.tools.weather_enabled` / `weather_city` / `weather_timeout_secs`：写后下一轮对话即按新值门控【联网】注入。
+    - **持久化**：`scene.*` 键以点键形式存入设备配置库（与 `settings` 同库、`scene.` 前缀），**启动时叠加覆盖**同名 TOML 值（TOML 为引导缺省，Web 修改优先生效）；`GET /api/config` 的 `settings` 节**不重复返回** `scene.*` 键。
+    - PUT 语义同 §5 部分合并：只提交出现的键；类型/范围校验失败整体 400 且不落盘。`GET` 返回的值取自**运行时共享句柄**（反映热修改后的现值）。
+    - **仍为文件配置（不进 `scene`）的重启类键**：`[voice] keywords_threshold`/`speaker_verify`、`[tts]`/`[llm]`/`[vlm]` 模型路径、`[resources] auto_tier` 与 llm 分层档位——属部署期决策，改动需改 TOML 并重启（本条不加线上编辑入口）。
+    - 其余端方言不受影响（该节仅 notebook 通告）。
+
 ## 8. 附录 B：本规范取代的旧端点（迁移对照）
 
 | 旧端点（项目） | 新端点 |

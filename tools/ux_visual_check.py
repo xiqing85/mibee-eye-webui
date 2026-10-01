@@ -178,6 +178,17 @@ with sync_playwright() as p:
     check("settings: sections rendered",
           pg.locator("#config-form .config-section").count() >= 4)
     check("settings: save disabled when clean", pg.locator("#save-config").is_disabled())
+    # scene capability keys (SPEC appendix A #31) render with labels
+    check("settings: scene voice window field",
+          pg.locator('[id="cf-scene.voice.follow_up_window_secs"]').count() == 1)
+    check("settings: scene weather city labelled",
+          '天气查询城市' in pg.locator('label[for="cf-scene.tools.weather_city"]').inner_text())
+    pg.fill('[id="cf-scene.voice.follow_up_window_secs"]', '-1')
+    pg.wait_for_timeout(400)
+    check("settings: negative scene window flagged",
+          "invalid" in pg.locator('[id="cf-scene.voice.follow_up_window_secs"]')
+          .locator("xpath=ancestor::div[contains(@class,'config-field')]").first.get_attribute("class"))
+    pg.fill('[id="cf-scene.voice.follow_up_window_secs"]', '12')
     # collapse first section
     pg.locator(".config-section-title").first.click()
     pg.wait_for_timeout(300)
