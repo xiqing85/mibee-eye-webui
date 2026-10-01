@@ -306,11 +306,24 @@ with sync_playwright() as p:
     pg.click("#chat-fab")
     pg.wait_for_timeout(300)
     check("chat: panel opens", pg.locator("#chat-panel").is_visible())
+    # Grounded chat (#29): the eye toggle appears on VLM-capable mocks;
+    # a plain reply carries a "scene" badge, a vision turn a "vlm" badge.
+    check("chat: vision toggle visible (vlm cap)",
+          pg.locator("#chat-vision").is_visible())
     pg.fill("#chat-input", "hello")
     pg.click("#chat-send")
     pg.wait_for_timeout(800)
     check("chat: reply bubble rendered",
           pg.locator("#chat-log .chat-bubble").count() >= 2)
+    check("chat: scene badge on plain reply",
+          pg.locator("#chat-log .chat-badge.scene").count() >= 1)
+    pg.click("#chat-vision")
+    pg.fill("#chat-input", "你能看到我吗")
+    pg.click("#chat-send")
+    pg.wait_for_timeout(800)
+    check("chat: vlm badge on vision reply",
+          pg.locator("#chat-log .chat-badge.vlm").count() >= 1)
+    pg.click("#chat-vision")  # leave it off for later legs
     shot(pg, "15c-chat-panel", full=True)
     pg.click("#chat-close")
 

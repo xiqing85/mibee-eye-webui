@@ -357,6 +357,8 @@ MSE 流细则：init segment（`ftyp`+`moov`）只发一次，随后每访问单
 
 28. **ONVIF 能力面扩展键（三端，2026-09-29 起）**：onvif 节新增方言键（均为加法、默认值保证存量行为不变；`config_apply` 语义随 onvif 节现状=重启生效）。`onvif.media2_enabled`（bool，缺省 `true`；rs TOML `[onvif]` / go YAML / notebook SQLite `protocols.onvif` 同名）——启用 ver20 Media2 服务面（`/onvif/media2_service`，Profile T 客户端首选路径；GetServices 加法广告 ver20/media 条目）；`false` 时端点 404、GetServices 无该条目（字节与旧版一致）。`onvif.deviceio_enabled`（bool，缺省 `true`；**仅 go**）——DeviceIO 动作族（无音频/继电器/数字输入硬件→诚实空集应答）。`onvif.http_digest`（bool，缺省 `false`；**仅 rs/notebook**）——启用 HTTP Digest 传输认证（RFC 7616 MD5）：无凭证请求收 401+`WWW-Authenticate: Digest` 挑战，合法摘要头通过认证；与 WS-Security UsernameToken 并存（带令牌时以令牌为准）。`onvif.ip_filter`（字符串数组，缺省空=不启用；**仅 rs/notebook**，rs 为 TOML 数组、notebook 为 SQLite 数组）——IPv4/CIDR 允许列表（Allow 模式），列表外来源在任何 HTTP/SOAP 处理前 403；坏条目 WARN 跳过、全坏 fail-open。
 
+29. **notebook 接地对话（视觉上下文注入 + 看图直答，2026-10-01 起）**：`POST /api/chat`（#22）请求新增可选 `vision`（bool，缺省 `false`）；响应新增 `grounded` 字段（`"vlm" | "scene" | "none"`）。**语义**：① **场景接地（自动、fail-open、零新增延迟）**——llm 引擎活跃时，每轮对话（HTTP 与语音自动应答同源）在历史前注入一条系统回合：人设 + **语言跟随指令**（"用用户所用的语言——普通话/粤语/英语——回复"）+ 【画面】上下文块（实时 AI 检测标签计数如 `2×person, 1×chair`（秒级新鲜，复用既有推理流）+ 最近一次 VLM 告警画面描述（若有，注明滞后）；两者皆无则省略画面块）。`grounded:"scene"` = 回复带画面上下文；`"none"` = 无视觉信息可用（注入仍发生，仅画面块缺省）。**不为此新跑任何推理**。② **看图直答（显式、慢）**——`vision:true` 且 `vlm` 能力在位：取相机当前帧（与快照同源），用户原话连同帧交给 VLM 直接作答（`grounded:"vlm"`）；CPU 设备单次推理可达数十秒，前端须明示慢速预期。VLM 不在/取帧失败/推理失败 → fail-open 回落 ①（grounded 如实标注实际路径）。③ SSE `chat_reply`（语音自动应答）同步新增 `grounded` 字段（恒 ① 路径，值 `"scene"|"none"`）。无新配置键、无新端点。会话认证 + CSRF 同 §2。
+
 ## 8. 附录 B：本规范取代的旧端点（迁移对照）
 
 | 旧端点（项目） | 新端点 |
