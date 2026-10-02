@@ -54,7 +54,8 @@ STATE = {
                     "position_longitude": "", "position_latitude": "",
                     "talkback_playback": True, "talkback_upstream": False},
         "logging": {"level": "info"},
-        "scene": {"voice": {"follow_up_window_secs": 12.0},
+        "scene": {"voice": {"follow_up_window_secs": 12.0,
+                            "wake_word": "小蜜蜂"},
                   "tools": {"weather_enabled": True, "weather_city": "Guangzhou",
                             "weather_timeout_secs": 5}},
         "watermark": {"enabled": False, "text": "", "show_timestamp": True,
@@ -847,6 +848,17 @@ class Handler(BaseHTTPRequestHandler):
         # or only flips — effective dims unchanged — applies via an in-place
         # camera pipeline restart instead of a process restart.
         body = self.body_json()
+        # notebook dialect (#32): CHANGING the wake word is restart-class.
+        # The settings page always PUTs the full document, so the mere
+        # presence of the key must not hijack every save.
+        if isinstance(body, dict):
+            ww = (body.get("scene") or {}).get("voice", {}).get("wake_word")
+            cur = STATE["config"].get("scene", {}).get("voice", {}).get("wake_word")
+            if ww is not None and ww != cur:
+                merge(STATE["config"], body)
+                self.ok({"applied": "restart"})
+                return
+
         old_rot = int(STATE["config"].get("camera", {}).get("rotation", 0) or 0)
         cam_keys = set((body.get("camera") or {}).keys()) if isinstance(body, dict) else set()
         geometry_preserving = (
