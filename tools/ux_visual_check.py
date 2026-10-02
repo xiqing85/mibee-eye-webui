@@ -181,6 +181,8 @@ with sync_playwright() as p:
     # scene capability keys (SPEC appendix A #31) render with labels
     check("settings: scene voice window field",
           pg.locator('[id="cf-scene.voice.follow_up_window_secs"]').count() == 1)
+    check("settings: scene wake word field",
+          pg.locator('[id="cf-scene.voice.wake_word"]').count() == 1)
     check("settings: scene weather city labelled",
           '天气查询城市' in pg.locator('label[for="cf-scene.tools.weather_city"]').inner_text())
     pg.fill('[id="cf-scene.voice.follow_up_window_secs"]', '-1')
