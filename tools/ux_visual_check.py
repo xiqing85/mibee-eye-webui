@@ -345,6 +345,7 @@ with sync_playwright() as p:
     pg.click("#nav .nav-tab[data-view=records]")
     pg.wait_for_timeout(800)
     check("records: view active", pg.locator("#view-records.active").count() == 1)
+    check("records: faces card rendered (mock)", pg.locator("#faces-card").count() == 1)
     check("records: seeded rows rendered", pg.locator("#records-list .record-row").count() >= 2)
     check("records: sound kind badge", pg.locator("#records-list .record-kind.kind-sound").count() >= 1)
     check("records: voice kind badge", pg.locator("#records-list .record-kind.kind-voice").count() >= 1)
