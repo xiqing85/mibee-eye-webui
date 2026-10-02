@@ -149,6 +149,7 @@ CAPS = {
     "audio_ai": True,
     "audio_records": True,
     "voice_speakers": True,
+    "face": True,
     "decision": True,
     "meeting": True,
     "zones": True,
@@ -424,6 +425,23 @@ class Handler(BaseHTTPRequestHandler):
         ck = self.parse_cookies().get("csrf-token")
         if not ck or ck != self.headers.get("X-CSRF-Token"):
             return self.err("unauthorized", "csrf mismatch", 401)
+        if path == "/api/faces":
+            body = self.body_json()
+            st = STATE["faces"]
+            st["enrollment"] = {"name": body.get("name", ""), "collected": 0, "needed": 8}
+            return self.ok({"enrolling": body.get("name", "")})
+        if path == "/api/faces/commit":
+            st = STATE["faces"]
+            if st.get("enrollment"):
+                name = st["enrollment"]["name"]
+                st["faces"].append({"id": len(st["faces"]) + 1, "name": name, "dim": 128,
+                                    "created_at": "2026-10-02T10:00:00Z"})
+                st["enrollment"] = None
+                return self.ok({"enrolled": name, "dim": 128})
+            return self.err("bad_request", "no enrollment in flight", 400)
+        if path == "/api/faces/cancel":
+            STATE["faces"]["enrollment"] = None
+            return self.ok({"cancelled": True})
         if path == "/api/config":
             return self.put_config()
         if path.startswith("/api/cameras/") and path.endswith("/recording"):
@@ -475,6 +493,14 @@ class Handler(BaseHTTPRequestHandler):
             removed = len(STATE["hearing_records"])
             STATE["hearing_records"] = []
             return self.ok({"applied": "immediate", "removed": removed})
+        if path.startswith("/api/faces/"):
+            name = path.rsplit("/", 1)[1]
+            st = STATE["faces"]
+            before = len(st["faces"])
+            st["faces"] = [f for f in st["faces"] if f["name"] != name]
+            if len(st["faces"]) == before:
+                return self.err("not_found", "no such face", 404)
+            return self.ok({"deleted": name})
         if path.startswith("/api/meetings/"):
             try:
                 mid = int(path.rsplit("/", 1)[1])
