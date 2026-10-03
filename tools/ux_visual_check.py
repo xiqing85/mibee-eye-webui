@@ -374,7 +374,7 @@ with sync_playwright() as p:
     check("models: downloadable alternative offered",
           pg.locator("#model-card-llm .model-row:not(.model-row-active) button.btn-primary").count() == 1)
     check("models: no-source entry shows badge",
-          pg.locator("#model-card-face-recog .badge-nodl").count() >= 1)
+          pg.locator("#model-card-ocr .badge-nodl").count() >= 1)
     check("models: immediate badge on detection card",
           pg.locator("#model-card-ai .model-apply-badge.badge-immediate").count() == 1)
     # Download flow: the mock task ticks over ~3s with SSE progress.
