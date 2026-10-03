@@ -328,6 +328,15 @@ with sync_playwright() as p:
     pg.wait_for_timeout(800)
     check("chat: reply bubble rendered",
           pg.locator("#chat-log .chat-bubble").count() >= 2)
+    # Voice waveform (SPEC §6 audio_level): the strip renders and the
+    # canvas actually paints (mock bursts every 2s).
+    check("waveform: strip visible in chat panel",
+          pg.locator("#chat-waveform-wrap:not(.hidden)").is_visible())
+    wf_before = pg.evaluate("document.getElementById('chat-waveform').toDataURL().length")
+    pg.wait_for_timeout(2500)
+    wf_after = pg.evaluate("document.getElementById('chat-waveform').toDataURL().length")
+    check("waveform: canvas animates with audio_level events",
+          wf_after > 0 and wf_after != wf_before)
     check("chat: scene badge on plain reply",
           pg.locator("#chat-log .chat-badge.scene").count() >= 1)
     pg.click("#chat-vision")
