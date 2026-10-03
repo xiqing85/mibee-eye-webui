@@ -179,7 +179,7 @@ CAPS = {
     "substream": True,
     "webrtc": False,
     "events": ["camera_added", "camera_offlined", "param_changed", "ai_detection",
-               "ai_model_changed", "recording", "status", "alarm", "alarm_description", "voice_transcript", "chat_reply", "zone_event", "voice_decision", "meeting_state", "model_task"],
+               "ai_model_changed", "recording", "status", "alarm", "alarm_description", "voice_transcript", "chat_reply", "zone_event", "voice_decision", "meeting_state", "model_task", "audio_level"],
     "config_apply": {"default": "restart", "sections": {"imaging": "immediate",
                                                         # demonstrates the immediate badge on a real config section
                                                         "logging": "immediate",
@@ -414,6 +414,13 @@ def ai_thread():
         if fn % 15 == 1:
             sse_broadcast("alarm", {"camera_id": "0", "active": True, "source": "ai",
                                     "targets": 1, "timestamp": int(time.time() * 1000)})
+        # Mic level (SPEC §6 audio_level) — burst pattern: 4s speech-like
+        # pulses then 2s silence, so the waveform visibly dances and floors.
+        if fn % 3 != 0:
+            import math as _m
+            level = 0.25 + 0.6 * abs(_m.sin(fn * 1.7))
+            sse_broadcast("audio_level", {"level": round(level, 3),
+                                          "timestamp": int(time.time() * 1000)})
 
 
 class Handler(BaseHTTPRequestHandler):
