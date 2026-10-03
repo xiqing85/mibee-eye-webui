@@ -357,6 +357,48 @@ with sync_playwright() as p:
           pg.locator("#records-list .record-kind.kind-speaker").count() == 1 and
           pg.locator("#records-list .kind-speaker").inner_text().strip() == "mickey")
 
+    # ── AI models page (SPEC §4.9/§4.10, model_manager + cloud_ai) ──
+    check("models: tab visible", pg.locator("#nav .nav-tab[data-view=models]").is_visible())
+    pg.click("#nav .nav-tab[data-view=models]")
+    pg.wait_for_timeout(600)
+    check("models: view active", pg.locator("#view-models.active").count() == 1)
+    check("models: cloud card rendered",
+          pg.locator("#cloud-card:not(.hidden)").count() == 1)
+    check("models: cloud key state unset", "未设置密钥" in pg.locator("#cloud-key-state").inner_text())
+    check("models: cloud chat suggestions present",
+          pg.locator("#cloud-chat-suggest option").count() >= 3)
+    check("models: capability cards rendered",
+          pg.locator("#models-caps .card").count() >= 4)
+    check("models: active badge on llm",
+          pg.locator("#model-card-llm .model-row-active .badge-active").count() == 1)
+    check("models: downloadable alternative offered",
+          pg.locator("#model-card-llm .model-row:not(.model-row-active) button.btn-primary").count() == 1)
+    check("models: no-source entry shows badge",
+          pg.locator("#model-card-face-recog .badge-nodl").count() >= 1)
+    check("models: immediate badge on detection card",
+          pg.locator("#model-card-ai .model-apply-badge.badge-immediate").count() == 1)
+    # Download flow: the mock task ticks over ~3s with SSE progress.
+    pg.click("#model-card-llm .model-row:not(.model-row-active) button.btn-primary")
+    pg.wait_for_timeout(1200)
+    check("models: progress bar during download",
+          pg.locator("#model-card-llm .model-progress:not(.hidden)").count() == 1)
+    pg.wait_for_timeout(3500)
+    check("models: download completes to activate button",
+          pg.locator("#model-card-llm .model-row:not(.model-row-active) button", has_text="启用").count() == 1)
+    # Cloud save round-trip: provider select + fallback toggle persist.
+    pg.select_option("#cloud-provider", "openrouter")
+    pg.fill("#cloud-api-key", "sk-or-mock-key")
+    pg.click("#cloud-save")
+    pg.wait_for_timeout(600)
+    check("models: cloud key state set after save",
+          "已保存密钥" in pg.locator("#cloud-key-state").inner_text())
+    check("models: clear-key button appears",
+          pg.locator("#cloud-key-clear:not(.hidden)").count() == 1)
+    shot(pg, "16-models", full=True)
+    # Back to records for the speaker/face enroll flows that follow.
+    pg.click("#nav .nav-tab[data-view=records]")
+    pg.wait_for_timeout(400)
+
     # ── Speakers card (SPEC appendix A #25): seeded chip + enroll flow ─
     check("speakers: card visible", pg.locator("#speakers-card:not(.hidden)").count() == 1)
     check("speakers: seeded chip rendered", pg.locator("#speakers-list .speaker-chip").count() == 1)

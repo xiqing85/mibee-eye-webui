@@ -83,6 +83,8 @@ CSRF 契约：所有 `POST/PUT/DELETE/PATCH` 到 `/api/*`（auth 族除外：log
   "ai": false,
   "ai_models": false,
   "ai_upload": false,
+  "model_manager": false,
+  "cloud_ai": false,
   "ptz": false,
   "hls": false,
   "recording": false,
@@ -260,6 +262,33 @@ MSE 流细则：init segment（`ftyp`+`moov`）只发一次，随后每访问单
 | GET | `/api/devices/video/{index}/formats` | `[{"width","height","format","fps"}]` |
 | GET | `/api/devices/audio` | `[{"name","supported_configs":[...]}]` |
 
+### 4.9 AI 模型管理（Extension：`model_manager`，v1 同版本加法 2026-10-03）
+
+设备内**全部 AI 能力**的模型目录：每个能力列出设备实际支持运行的多个候选模型，前端提供下载（带进度）、启用切换与删除。目录由设备定义——设备只列自己能加载的模型（跨解码族不兼容的模型不出现），前端不假设目录内容。能力 `model_manager` 通告（缺省 `false`，前端隐藏整个模型管理 UI）。
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/models` | `{"dir":"models","capabilities":[…],"tasks":[…]}`。每个 capability：`{"id","label","apply":"restart"\|"immediate","active":"<model-id>"\|null,"models":[…]}`；每个 model：`{"id","name","size_bytes","languages":[…],"license","notes","installed":bool,"active":bool,"downloadable":bool}`。`installed` = 全部文件就位（按目录 size 校验）；`downloadable:false` = 设备未提供下载源（仅可删除已装文件，不可下载/重下） |
+| POST | `/api/models/{capability}/{model_id}/download` | 创建异步下载任务 → `202 {"task":<task 对象>}`。未知 capability/model → 404；已安装 → 409（body `{"force":true}` 强制重下）；磁盘余量不足（< 1.1×size_bytes）→ 507 `insufficient_storage`；同模型已有进行中任务 → 409。下载按文件顺序进行，断点续传（HTTP Range，`.part` 临时文件），完成后按 size + （有则）sha256 校验，失败不改 `installed`、不留成品 |
+| GET | `/api/models/tasks` | `{"tasks":[…]}`；task 对象：`{"task_id","capability","model_id","model_name","status":"downloading"\|"verifying"\|"done"\|"failed"\|"canceled","progress":0..1,"downloaded_bytes","total_bytes","error"?}` |
+| POST | `/api/models/tasks/{task_id}/cancel` | 取消进行中任务（`.part` 文件保留供续传）→ `200 {"status":"canceled"}`；已结束任务 → 409 |
+| POST | `/api/models/{capability}/{model_id}/activate` | 启用模型。`apply:"restart"` 能力：持久化选择 → `{"applied":"restart"}`，设备重启后经启动 overlay 落到引擎配置（方言见附录 A #34）；已启用 → 幂等 200 同响应。`apply:"immediate"` 能力（目标检测）：等价 §4.6 activate 热切换 → `{"applied":"immediate","active":"<id>"}` 并广播 `ai_model_changed`。未安装 → 409 |
+| DELETE | `/api/models/{capability}/{model_id}` | 删除该模型的已装文件 → 204。正在使用（active）→ 409；未安装 → 404 |
+
+**模型文件路径完全由设备目录决定**，不经前端（前端只传 capability/model id）。下载进度另以 SSE `model_task` 事件推送（§6，节流 ≥0.5s）。
+
+### 4.10 在线 AI（Extension：`cloud_ai`，v1 同版本加法 2026-10-03）
+
+外接云端大模型对话（首个供应商 OpenRouter，OpenAI 兼容 `/v1/chat/completions`）。API 密钥**只写不读**：`GET` 永不回显密钥本体，只返回 `api_key_set`；存储位置不进入 `/api/config` 与 `/api/settings` 的可见面（方言见附录 A #35）。
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/cloud` | `{"provider":"off"\|"openrouter","api_key_set":bool,"chat_model","vision_model","fallback_local":bool,"timeout_secs","suggest":{"chat":[…],"vision":[…]}}`（`suggest` 为设备内置的常用模型 id 建议，前端可自由输入其它值） |
+| PUT | `/api/cloud` | 部分合并写。`api_key` 字段 write-only：非空 = 设置，`""` = 清除，缺省 = 不变。校验：`provider` 枚举、model 字符串 ≤128 字节、`timeout_secs` 整数 5..=300、`fallback_local` bool，非法 → 400 整体拒绝。响应 = GET 形状 + `"applied":"immediate"`（对话路由即时切换） |
+| POST | `/api/cloud/test` | 用当前存储配置发一次最小补全做连通性测试 → `{"ok":true,"latency_ms","model","reply"}`；无效密钥 / 网络失败 / 超时 → 错误信封如实报错（如 401 invalid_api_key） |
+
+**路由语义**：`provider != "off"` 且密钥已设时，对话优先走云端——文本问答用 `chat_model`，`vision:true` 的问题用 `vision_model`（画面 JPEG 以 data URL 内嵌发送）；HTTP `POST /api/chat` 与设备端语音自动应答同权路由。云端请求失败（网络/鉴权/超时）且 `fallback_local:true`（缺省）时回落本地模型应答，不失败整个对话；`POST /api/chat` 响应增加同版本加法字段 `"engine":"cloud"\|"local"\|"vlm"`。**隐私边界（前端须在启用处明示）**：启用后对话文本（vision 问题含画面帧）会发送到所选云端服务。
+
 ## 5. 配置（Core）
 
 | 方法 | 路径 | 说明 |
@@ -312,6 +341,7 @@ MSE 流细则：init segment（`ftyp`+`moov`）只发一次，随后每访问单
 | `param_changed` | `{"camera_id","name","value"}` | imaging 参数被任意客户端修改 |
 | `ai_detection` | `{"camera_id","detections":[{"label","confidence","bbox"}],"frame_number"?}` | AI 推理帧；bbox 坐标系同 §4.6（视频像素空间） |
 | `ai_model_changed` | `{"camera_id","model"}` | 模型热切换完成（§4.6 activate 端点）；`model` 为新模型 id |
+| `model_task` | `{"task_id","capability","model_id","status","progress",…}` | 模型下载任务状态变化（§4.9，v1 同版本加法）：`status` ∈ downloading/verifying/done/failed/canceled，节流 ≥0.5s；通告门控 `model_manager` |
 | `alarm` | `{"camera_id","active","source","targets","timestamp"}` | 告警上升沿（v1 同版本加法）：与 GB28181 告警 NOTIFY 同源同门控（上升沿 + 冷却 + 运行时开关），在边缘被接受时即推送、与平台侧投递成败无关；`active` 恒为 `true`（上升沿事件），`source` 目前恒为 `"ai"`，`targets` 为触发目标数，`timestamp` epoch-ms。通告门控为 AI 启用（2026-09-20 起不再要求 GB28181 启用，见附录 A #18） |
 | `recording` | `{"camera_id","active"}` | 录像启停 |
 | `status` | `{"uptime",...}` | 周期状态摘要（可选） |
@@ -377,6 +407,8 @@ MSE 流细则：init segment（`ftyp`+`moov`）只发一次，随后每访问单
 
 32. **notebook 唤醒词 Web 可配置（`scene.voice.wake_word`，2026-10-02 起）**：#31 的 scene 节新增 `voice.wake_word`（string，**2-6 个汉字、普通话发音**——KWS 为普通话音节模型，粤语/英语发音不可用）。**生效语义为 `restart`**：PUT 校验（不可发音/越界 → 整体 400）、持久化进 settings 袋，保存响应 `applied:"restart"`；设备自此通告 `capabilities.restart=true` 与 `config_apply.auto=true`（见 §5.1/方言 #10 修订），前端走统一自动重启等待流程。启动时非默认值在数据库同目录生成 keywords 覆写文件（`kws-keywords.txt`，声母/带调韵母 token 拼写由设备从汉字自动转换），KWS 指向该文件；默认词继续用随模型分发的 keywords 文件。助手人设的名字随配置的唤醒词（问"你叫什么"答配置名）。
 33. **notebook 人脸识别（注册/画面人员接地，2026-10-02 起）**：`[face]` 节新增可选人脸识别（off 缺省；模型 = OpenCV zoo **YuNet** 检测 + **SFace** 128 维嵌入，均 Apache-2.0，文件缺失只禁用特性）。新配置键：`enabled`（false）、`detect_model`（`models/face/face_detection_yunet_2023mar.onnx`）、`recog_model`（`models/face/face_recognition_sface_2021dec.onnx`）、`detect_input`（320，检测输入边长，越大找得到越小的人脸、CPU 二次方增长）、`match_threshold`（0.363，余弦阈值=SFace 参考值）、`enroll_frames`（8，注册采帧数）、`ttl_ms`（10000）。**语义**：① 档案存 SQLite `faces` 表（`{id, name UNIQUE, dim, embedding BLOB(LE f32), created_at}`）；② 注册 = 轮询式流程，与 #25 声纹同构——`POST /api/faces`（体 `{name}`，1..=32 字节，已注册名 400）武装引擎，**受检相机前出现人脸的每一帧自动累积嵌入样本**（无需用户操作），`GET /api/faces`（无副作用）返回 `{faces:[…], enrollment:{name,collected,needed}|null, capable:bool}`，`POST /api/faces/commit`（集满后）把均值归一化模板入库 → `{enrolled, dim}`，未集满 400；`POST /api/faces/cancel` 放弃；`DELETE /api/faces/{name}` 删档案（不存在 404）；③ **画面人员接地**——AI 检测环同帧跑人脸匹配，命中的姓名与未识别计数写入对话接地（【画面】块新增 `画面人员：张三×1、未识别×1` 行，10s TTL）——问「你看到谁」由 LLM 据此作答；④ `capabilities.face` 布尔通告（= 引擎 active）。**诚实边界**：正面清晰人脸的便利性识别，非安防级认证（照片可能通过）；侧面/暗光弱。前端 records 页「已注册人脸」卡（能力门控）。
+34. **notebook 全量模型管理（§4.9 能力 `model_manager`，2026-10-03 起）**：全部 AI 能力（llm / vlm / 语音识别 / 三个 TTS 语音 / 人脸检测与识别 / 目标检测 / OCR / 意图分类 / 声纹）的候选模型目录 + 一键下载 + 切换。**存储布局**：模型统一落 `[models] dir`（缺省 `models`，相对工作目录）下由目录定义的子路径；`installed` 判定 = 目录声明的全部文件按 size 就位。**启用语义**：`apply:"restart"` 能力（除目标检测外全部）把选择持久化为 settings 袋的 `model.<capability>` 行（与 `scene.*` 同法：**不出现在 `/api/config` 与 `/api/settings` 响应里**），启动时 overlay 校验目录 id 后落到引擎配置键（如 `llm.model_path`、`voice.paraformer_model`、`tts.yue_model`、`face.detect_model`、`ocr.*_path`、`decision.*_path`），未知 id 告警跳过不阻断启动；`apply:"immediate"` 的 `ai` 能力把下载产物注册进 §4.6 的注册表（`source:"downloaded"`）后走既有 activate 热切换。**目录来源诚实性**：仅收录设备引擎实际支持的模型族（GGUF 用单文件量化档；sherpa 家族用 vits/paraformer 对应型号），无下载源的条目 `downloadable:false`。**激活后自动重启**：沿用 #32 的 `config_apply.auto=true` 统一自动重启等待流程。
+35. **notebook 在线 AI（§4.10 能力 `cloud_ai`，2026-10-03 起）**：OpenRouter 接入。**存储**：云端配置存独立 SQLite 表（`cloud_config` 单行），**不进 settings 袋**——`GET /api/settings` 与 `/api/config` 均不可见，密钥仅 `api_key_set` 布尔可见。**路由**：provider 有效且密钥已设时，HTTP `POST /api/chat` 与语音自动应答同权走 OpenRouter（文本 `chat_model`；`vision:true` 用 `vision_model` + 最新帧 data URL）；失败回落本地（`fallback_local` 缺省 true）；`engine` 字段披露实际路径。**人设一致性**：云端请求沿用本地同款 system turn（人设/语言跟随/【画面】【本机】【联网】接地块），即接地能力不因上云丢失。`POST /api/cloud/test` 用 5s 级短超时最小补全。密钥长度上限 256 字节；`suggest` 为静态建议表，前端允许自由输入任意模型 id。
 ## 8. 附录 B：本规范取代的旧端点（迁移对照）
 
 | 旧端点（项目） | 新端点 |
