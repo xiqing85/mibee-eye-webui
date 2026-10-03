@@ -11,6 +11,7 @@ Usage: python3 tools/mock_server.py [port]   (default 8090)
 import json
 import math
 import os
+import re
 import secrets
 import struct
 import sys
@@ -95,7 +96,18 @@ STATE = {
          "source": "builtin", "available": False},
     ],
     "upload": {"allowed": True, "max_bytes": 33554432}},
-    "sse_queues": [],    "zones": [
+    "sse_queues": [],
+    # AI model manager (SPEC §4.9): installed flags + selection + tasks.
+    "model_installed": {"llm/mock-llm-4b": True, "vlm/mock-vlm-2b": True,
+                        "voice.asr/mock-asr-tri": True, "ai/nanodet-plus-m-320": True},
+    "model_active": {"llm": "mock-llm-4b", "vlm": "mock-vlm-2b",
+                     "voice.asr": "mock-asr-tri", "ai": "nanodet-plus-m-320"},
+    "model_tasks": {},
+    "model_task_seq": 0,
+    # Online AI (SPEC §4.10). The key is never returned — only api_key_set.
+    "cloud": {"provider": "off", "api_key": "", "chat_model": "openai/gpt-4o-mini",
+              "vision_model": "", "fallback_local": True, "timeout_secs": 60},
+    "zones": [
         {"name": "door", "kind": "intrusion",
          "points": [[120, 90], [420, 90], [420, 300], [120, 300]], "dwell_secs": 5},
     ],
@@ -167,14 +179,107 @@ CAPS = {
     "substream": True,
     "webrtc": False,
     "events": ["camera_added", "camera_offlined", "param_changed", "ai_detection",
-               "ai_model_changed", "recording", "status", "alarm", "alarm_description", "voice_transcript", "chat_reply", "zone_event", "voice_decision", "meeting_state"],
+               "ai_model_changed", "recording", "status", "alarm", "alarm_description", "voice_transcript", "chat_reply", "zone_event", "voice_decision", "meeting_state", "model_task"],
     "config_apply": {"default": "restart", "sections": {"imaging": "immediate",
                                                         # demonstrates the immediate badge on a real config section
                                                         "logging": "immediate",
                                                         "watermark": "restart"}},
     "restart": True,
+    "model_manager": True,
+    "cloud_ai": True,
     "observability": {"metrics": True, "logs": True, "requests": True},
 }
+
+# AI model catalog (SPEC §4.9) — mirrors the notebook dialect shape: a
+# couple of downloadable alternatives per capability, one no-source
+# entry, and the detection capability with immediate (hot) apply.
+MODEL_CATALOG = [
+    {"id": "llm", "label": "Dialogue LLM", "apply": "restart", "models": [
+        {"id": "mock-llm-4b", "name": "MockLLM-4B Q4", "size_bytes": 2497281120,
+         "languages": ["zh", "en"], "license": "Apache-2.0", "notes": "", "downloadable": True},
+        {"id": "mock-llm-1b", "name": "MockLLM-1.7B Q4", "size_bytes": 1200000000,
+         "languages": ["zh", "en"], "license": "Apache-2.0", "notes": "smaller / faster", "downloadable": True},
+    ]},
+    {"id": "vlm", "label": "Vision-language model", "apply": "restart", "models": [
+        {"id": "mock-vlm-2b", "name": "MockVL-2B Q4 + mmproj", "size_bytes": 1552463168,
+         "languages": ["zh", "en"], "license": "Apache-2.0", "notes": "", "downloadable": True},
+    ]},
+    {"id": "voice.asr", "label": "Speech recognition", "apply": "restart", "models": [
+        {"id": "mock-asr-tri", "name": "Mock ASR trilingual", "size_bytes": 244803083,
+         "languages": ["zh", "yue", "en"], "license": "Apache-2.0", "notes": "", "downloadable": True},
+        {"id": "mock-asr-zh", "name": "Mock ASR zh small", "size_bytes": 81904027,
+         "languages": ["zh"], "license": "Apache-2.0", "notes": "", "downloadable": True},
+    ]},
+    {"id": "face.recog", "label": "Face recognition", "apply": "restart", "models": [
+        {"id": "sface-2021dec", "name": "SFace 128-d", "size_bytes": 38696353,
+         "languages": [], "license": "Apache-2.0", "notes": "", "downloadable": False},
+    ]},
+    {"id": "ai", "label": "Visual detection", "apply": "immediate", "models": [
+        {"id": "nanodet-plus-m-320", "name": "NanoDet-Plus-m 320", "size_bytes": 4834000,
+         "languages": [], "license": "Apache-2.0", "notes": "hot switch", "downloadable": True},
+        {"id": "nanodet-plus-m-416", "name": "NanoDet-Plus-m 416", "size_bytes": 4834000,
+         "languages": [], "license": "Apache-2.0", "notes": "hot switch", "downloadable": True},
+    ]},
+]
+
+CLOUD_SUGGEST = {
+    "chat": ["openai/gpt-4o-mini", "deepseek/deepseek-chat-v3.1", "qwen/qwen3-8b"],
+    "vision": ["openai/gpt-4o-mini", "google/gemini-2.5-flash", "qwen/qwen3-vl-8b"],
+}
+
+
+def model_catalog_document():
+    caps = []
+    for cap in MODEL_CATALOG:
+        active = STATE["model_active"].get(cap["id"])
+        models = []
+        for m in cap["models"]:
+            models.append(dict(m,
+                               installed=bool(STATE["model_installed"].get(cap["id"] + "/" + m["id"])),
+                               active=active == m["id"]))
+        caps.append(dict(cap, active=active, models=models))
+    tasks = [dict(t) for t in STATE["model_tasks"].values()
+             if t["status"] in ("downloading", "verifying")]
+    return {"dir": "models", "capabilities": caps, "tasks": tasks}
+
+
+def _advance_model_task(task_id, total_bytes):
+    """Simulated download: progress ticks land on the SSE bus so the
+    frontend progress bar exercises its real update path."""
+    import threading
+
+    def run():
+        task = STATE["model_tasks"].get(task_id)
+        if not task:
+            return
+        for pct in (5, 17, 33, 48, 62, 78, 91):
+            time.sleep(0.35)
+            task = STATE["model_tasks"].get(task_id)
+            if not task or task["status"] == "canceled":
+                return
+            task["progress"] = pct / 100
+            task["status"] = "downloading"
+            task["downloaded_bytes"] = int(total_bytes * pct / 100)
+            sse_broadcast("model_task", dict(task))
+        time.sleep(0.3)
+        task = STATE["model_tasks"].get(task_id)
+        if not task or task["status"] == "canceled":
+            return
+        task["status"] = "verifying"
+        task["progress"] = 0.97
+        sse_broadcast("model_task", dict(task))
+        time.sleep(0.3)
+        task = STATE["model_tasks"].get(task_id)
+        if not task or task["status"] == "canceled":
+            return
+        task["status"] = "done"
+        task["progress"] = 1.0
+        task["downloaded_bytes"] = total_bytes
+        STATE["model_installed"][task["capability"] + "/" + task["model_id"]] = True
+        sse_broadcast("model_task", dict(task))
+
+    threading.Thread(target=run, daemon=True).start()
+
 
 # A real, decodable 32x18 gray JPEG (no runtime image libs needed). The
 # old SOI+EOI stub failed decode on every multipart frame, which drove
@@ -425,6 +530,37 @@ class Handler(BaseHTTPRequestHandler):
         ck = self.parse_cookies().get("csrf-token")
         if not ck or ck != self.headers.get("X-CSRF-Token"):
             return self.err("unauthorized", "csrf mismatch", 401)
+        if path == "/api/cloud":
+            body = self.body_json()
+            c = STATE["cloud"]
+            if "provider" in body:
+                if body["provider"] not in ("off", "openrouter"):
+                    return self.err("bad_request", "provider must be off|openrouter", 400)
+                c["provider"] = body["provider"]
+            if "api_key" in body:
+                key = str(body["api_key"] or "")
+                if len(key) > 256:
+                    return self.err("bad_request", "api_key too long", 400)
+                c["api_key"] = key
+            for field in ("chat_model", "vision_model"):
+                if field in body:
+                    v = str(body[field] or "")
+                    if len(v) > 128:
+                        return self.err("bad_request", field + " too long", 400)
+                    c[field] = v
+            if "fallback_local" in body:
+                c["fallback_local"] = bool(body["fallback_local"])
+            if "timeout_secs" in body:
+                v = body["timeout_secs"]
+                if not isinstance(v, int) or not (5 <= v <= 300):
+                    return self.err("bad_request", "timeout_secs must be an int in 5..=300", 400)
+                c["timeout_secs"] = v
+            return self.ok({
+                "provider": c["provider"], "api_key_set": bool(c["api_key"]),
+                "chat_model": c["chat_model"], "vision_model": c["vision_model"],
+                "fallback_local": c["fallback_local"], "timeout_secs": c["timeout_secs"],
+                "suggest": CLOUD_SUGGEST, "applied": "immediate",
+            })
         if path == "/api/faces":
             body = self.body_json()
             st = STATE["faces"]
@@ -488,6 +624,18 @@ class Handler(BaseHTTPRequestHandler):
         path = self.path.split("?")[0]
         if not self.authed():
             return self.err("unauthorized", "not signed in", 401)
+        m = re.fullmatch(r"/api/models/([a-z.]+)/([a-z0-9-]+)", path)
+        if m:
+            cap_id, model_id = m.group(1), m.group(2)
+            key = cap_id + "/" + model_id
+            if not STATE["model_installed"].get(key):
+                return self.err("not_found", "model not installed", 404)
+            if STATE["model_active"].get(cap_id) == model_id:
+                return self.err("conflict", "cannot delete the active model", 409)
+            STATE["model_installed"][key] = False
+            self.send_response(204)
+            self.end_headers()
+            return
         # Hearing records (SPEC appendix A #24): clear all.
         if path == "/api/audio/records":
             removed = len(STATE["hearing_records"])
@@ -545,6 +693,18 @@ class Handler(BaseHTTPRequestHandler):
     def get_api(self, path):
         if path == "/api/health":
             return self.ok({"status": "ok", "uptime": int(time.time() - START)})
+        if path == "/api/models":
+            return self.ok(model_catalog_document())
+        if path == "/api/models/tasks":
+            return self.ok({"tasks": [dict(t) for t in STATE["model_tasks"].values()]})
+        if path == "/api/cloud":
+            c = STATE["cloud"]
+            return self.ok({
+                "provider": c["provider"], "api_key_set": bool(c["api_key"]),
+                "chat_model": c["chat_model"], "vision_model": c["vision_model"],
+                "fallback_local": c["fallback_local"], "timeout_secs": c["timeout_secs"],
+                "suggest": CLOUD_SUGGEST,
+            })
         if path == "/api/audio/records":
             from urllib.parse import parse_qs, urlparse
             q = parse_qs(urlparse(self.path).query)
@@ -671,7 +831,57 @@ class Handler(BaseHTTPRequestHandler):
             # mock always claims scene grounding (it fakes detections).
             vision = bool(body.get("vision"))
             grounded = "vlm" if vision else "scene"
-            return self.ok({"reply": f"[mock:{grounded}] 收到：{text}", "grounded": grounded})
+            engine = "cloud" if STATE["cloud"]["provider"] != "off" and STATE["cloud"]["api_key"] else "local"
+            return self.ok({"reply": f"[mock:{grounded}] 收到：{text}", "grounded": grounded, "engine": engine})
+        if path == "/api/cloud/test":
+            c = STATE["cloud"]
+            if c["provider"] == "off" or not c["api_key"]:
+                return self.err("bad_request", "cloud AI is off or no API key set", 400)
+            return self.ok({"ok": True, "latency_ms": 213, "model": c["chat_model"] or "openai/gpt-4o-mini",
+                            "reply": "OK"})
+        # Model manager (SPEC §4.9).
+        m = re.fullmatch(r"/api/models/([a-z.]+)/([a-z0-9-]+)/(download|activate)", path)
+        if m:
+            cap_id, model_id, action = m.group(1), m.group(2), m.group(3)
+            cap = next((c for c in MODEL_CATALOG if c["id"] == cap_id), None)
+            spec = next((x for x in (cap or {}).get("models", []) if x["id"] == model_id), None)
+            if not cap or not spec:
+                return self.err("not_found", "unknown capability or model", 404)
+            if action == "download":
+                key = cap_id + "/" + model_id
+                installed = bool(STATE["model_installed"].get(key))
+                if installed and not body.get("force"):
+                    return self.err("conflict", "already installed (force=true to re-download)", 409)
+                for t in STATE["model_tasks"].values():
+                    if t["capability"] == cap_id and t["model_id"] == model_id \
+                            and t["status"] in ("downloading", "verifying"):
+                        return self.err("conflict", "a task is already running for this model", 409)
+                STATE["model_task_seq"] += 1
+                tid = f"mt-{STATE['model_task_seq']}"
+                task = {"task_id": tid, "capability": cap_id, "model_id": model_id,
+                        "model_name": spec["name"], "status": "downloading", "progress": 0.0,
+                        "downloaded_bytes": 0, "total_bytes": spec["size_bytes"]}
+                STATE["model_tasks"][tid] = task
+                _advance_model_task(tid, spec["size_bytes"])
+                return self.ok({"task": dict(task)}, status=202)
+            # activate
+            if not STATE["model_installed"].get(cap_id + "/" + model_id):
+                return self.err("conflict", "model not installed", 409)
+            STATE["model_active"][cap_id] = model_id
+            if cap["apply"] == "immediate":
+                sse_broadcast("ai_model_changed", {"camera_id": "0", "model": model_id})
+                return self.ok({"applied": "immediate", "active": model_id})
+            return self.ok({"applied": "restart", "active": model_id})
+        m = re.fullmatch(r"/api/models/tasks/([a-z0-9-]+)/cancel", path)
+        if m:
+            task = STATE["model_tasks"].get(m.group(1))
+            if not task:
+                return self.err("not_found", "no such task", 404)
+            if task["status"] not in ("downloading", "verifying"):
+                return self.err("conflict", "task already finished", 409)
+            task["status"] = "canceled"
+            sse_broadcast("model_task", dict(task))
+            return self.ok({"status": "canceled"})
         # Voiceprint speakers (SPEC appendix A #25)
         if path == "/api/voice/speakers":
             name = str(body.get("name") or "").strip()
