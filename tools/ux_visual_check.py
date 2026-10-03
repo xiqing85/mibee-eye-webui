@@ -102,6 +102,16 @@ with sync_playwright() as p:
         check("login: enters app", pg.locator("#app").is_visible())
     shot(pg, "02-live-initial", full=True)
 
+    # ── New IA: five primary destinations ──────────────────────────────
+    check("nav: five primary tabs",
+          pg.locator("#nav .nav-tab:not(.hidden)").count() == 5,
+          str(pg.locator("#nav .nav-tab:not(.hidden)").count()))
+    check("nav: no legacy settings/status/devices tabs",
+          pg.locator('#nav .nav-tab[data-view=settings], #nav .nav-tab[data-view=status], '
+                     '#nav .nav-tab[data-view=devices], #nav .nav-tab[data-view=cameras]').count() == 0)
+    check("system: subnav has settings+status, devices unhidden by cap",
+          pg.locator('#system-subnav .subnav-btn:not(.hidden)').count() == 3)
+
     # ── Live view chrome ──────────────────────────────────────────────
     check("live: HUD visible", pg.locator("#stream-live-dot").is_visible())
     check("live: mjpeg badge after fallback", pg.locator("#mjpeg-fallback-badge").is_visible())
@@ -128,14 +138,14 @@ with sync_playwright() as p:
     }""")
     pg.wait_for_timeout(800)
     check("multi-cam: selector appears", pg.locator("#live-camera-field").is_visible())
-    check("multi-cam: cameras tab visible",
-          pg.locator("#nav .nav-tab[data-view=cameras]").is_visible())
-    check("multi-cam: devices tab visible",
-          pg.locator("#nav .nav-tab[data-view=devices]").is_visible())
+    check("multi-cam: camera grid section appears",
+          pg.locator("#cameras-section:not(.hidden-cap)").count() == 1)
+    check("multi-cam: devices subview unhidden by cap",
+          "hidden" not in (pg.locator('#system-subnav .subnav-btn[data-subview=devices]')
+                           .get_attribute("class") or ""))
     shot(pg, "05-live-multicam-select")
 
-    # ── Cameras view + confirm dialog ─────────────────────────────────
-    pg.click("#nav .nav-tab[data-view=cameras]")
+    # ── Camera grid (lives inside the Live view now) + confirm dialog ──
     pg.wait_for_timeout(1200)
     shot(pg, "06-cameras-grid", full=True)
     tiles = pg.locator("#cameras-grid .tile")
@@ -171,8 +181,8 @@ with sync_playwright() as p:
     check("confirm: ok deletes tile", pg.locator("#cameras-grid .tile").count() == 1)
     shot(pg, "08-cameras-after-delete")
 
-    # ── Settings: edit / validate / save / collapse / PTZ toggle ─────
-    pg.click("#nav .nav-tab[data-view=settings]")
+    # ── System ▸ Settings: edit / validate / save / collapse / PTZ ────
+    pg.click("#nav .nav-tab[data-view=system]")
     pg.wait_for_timeout(1500)
     shot(pg, "09-settings", full=True)
     check("settings: sections rendered",
@@ -212,14 +222,14 @@ with sync_playwright() as p:
     check("settings: save enabled", not pg.locator("#save-config").is_disabled())
     shot(pg, "12-settings-dirty", full=True)
     # unsaved guard: navigate away → confirm dialog → stay
-    pg.click("#nav .nav-tab[data-view=status]")
+    pg.click("#system-subnav .subnav-btn[data-subview=status]")
     pg.wait_for_timeout(400)
     check("unsaved guard: dialog shown", pg.locator("#confirm-overlay").is_visible())
     shot(pg, "13-unsaved-guard")
     pg.click("#confirm-cancel")
     pg.wait_for_timeout(300)
     check("unsaved guard: stays on settings",
-          "active" in pg.locator("#view-settings").get_attribute("class"))
+          "active" in pg.locator("#sys-settings").get_attribute("class"))
     # save → success toast
     pg.click("#save-config")
     pg.wait_for_timeout(900)
@@ -314,11 +324,15 @@ with sync_playwright() as p:
     pg.click("#zones-close")
     pg.wait_for_timeout(200)
 
-    # ── Chat (SPEC appendix A #22): fab + panel + one exchange ────────
-    check("chat: fab visible", pg.locator("#chat-fab").is_visible())
-    pg.click("#chat-fab")
-    pg.wait_for_timeout(300)
-    check("chat: panel opens", pg.locator("#chat-panel").is_visible())
+    # ── Assistant view (chat inline since the redesign) + one exchange ─
+    check("assistant: tab visible", pg.locator("#nav .nav-tab[data-view=assistant]").is_visible())
+    pg.click("#nav .nav-tab[data-view=assistant]")
+    pg.wait_for_timeout(600)
+    check("assistant: view active", pg.locator("#view-assistant.active").count() == 1)
+    check("assistant: chat card visible", pg.locator("#chat-log").is_visible())
+    check("assistant: speakers card in view",
+          pg.locator("#view-assistant #speakers-card").count() == 1 and
+          pg.locator("#view-assistant #faces-card").count() == 1)
     # Grounded chat (#29): the eye toggle appears on VLM-capable mocks;
     # a plain reply carries a "scene" badge, a vision turn a "vlm" badge.
     check("chat: vision toggle visible (vlm cap)",
@@ -330,7 +344,7 @@ with sync_playwright() as p:
           pg.locator("#chat-log .chat-bubble").count() >= 2)
     # Voice waveform (SPEC §6 audio_level): the strip renders and the
     # canvas actually paints (mock bursts every 2s).
-    check("waveform: strip visible in chat panel",
+    check("waveform: strip visible in chat card",
           pg.locator("#chat-waveform-wrap:not(.hidden)").is_visible())
     wf_before = pg.evaluate("document.getElementById('chat-waveform').toDataURL().length")
     pg.wait_for_timeout(2500)
@@ -346,8 +360,7 @@ with sync_playwright() as p:
     check("chat: vlm badge on vision reply",
           pg.locator("#chat-log .chat-badge.vlm").count() >= 1)
     pg.click("#chat-vision")  # leave it off for later legs
-    shot(pg, "15c-chat-panel", full=True)
-    pg.click("#chat-close")
+    shot(pg, "15c-chat-assistant", full=True)
 
     # ── Records view (SPEC appendix A #24): list + filter + clear ─────
     check("records: tab visible", pg.locator("#nav .nav-tab[data-view=records]").is_visible())
@@ -404,9 +417,10 @@ with sync_playwright() as p:
     check("models: clear-key button appears",
           pg.locator("#cloud-key-clear:not(.hidden)").count() == 1)
     shot(pg, "16-models", full=True)
-    # Back to records for the speaker/face enroll flows that follow.
-    pg.click("#nav .nav-tab[data-view=records]")
-    pg.wait_for_timeout(400)
+    # Back to the assistant view for the speaker enroll flow (the card
+    # moved there in the redesign); meetings stay under records.
+    pg.click("#nav .nav-tab[data-view=assistant]")
+    pg.wait_for_timeout(600)
 
     # ── Speakers card (SPEC appendix A #25): seeded chip + enroll flow ─
     check("speakers: card visible", pg.locator("#speakers-card:not(.hidden)").count() == 1)
@@ -438,6 +452,8 @@ with sync_playwright() as p:
           "mickey" in pg.locator("#speakers-list .speaker-chip").inner_text())
 
     # ── Meetings card (SPEC appendix A #27): seeded row + live cycle ──
+    pg.click("#nav .nav-tab[data-view=records]")
+    pg.wait_for_timeout(600)
     check("meetings: card visible", pg.locator("#meetings-card:not(.hidden)").count() == 1)
     check("meetings: seeded done row rendered",
           pg.locator("#meetings-list .meeting-row").count() == 1 and
@@ -485,8 +501,10 @@ with sync_playwright() as p:
     pg.wait_for_timeout(600)
     check("records: cleared to empty state", pg.locator("#records-list .record-empty").count() == 1)
 
-    # ── Status view ───────────────────────────────────────────────────
-    pg.click("#nav .nav-tab[data-view=status]")
+    # ── System ▸ Status ────────────────────────────────────────────────
+    pg.click("#nav .nav-tab[data-view=system]")
+    pg.wait_for_timeout(400)
+    pg.click("#system-subnav .subnav-btn[data-subview=status]")
     pg.wait_for_timeout(1200)
     shot(pg, "16-status", full=True)
     check("status: device pills rendered", pg.locator("#device-info .state-pill").count() >= 1)
@@ -511,8 +529,8 @@ with sync_playwright() as p:
           pg.evaluate("fetch('/metrics').then(r => r.status)") == 200)
     shot(pg, "16b-status-observability", full=True)
 
-    # ── Devices view ──────────────────────────────────────────────────
-    pg.click("#nav .nav-tab[data-view=devices]")
+    # ── System ▸ Devices ───────────────────────────────────────────────
+    pg.click("#system-subnav .subnav-btn[data-subview=devices]")
     pg.wait_for_timeout(1200)
     shot(pg, "17-devices", full=True)
     check("devices: rows with icons", pg.locator("#video-devices .device-ico").count() >= 1)
@@ -527,16 +545,16 @@ with sync_playwright() as p:
     check("lang: nav switches to EN",
           pg.text_content("#nav .nav-tab[data-view=preview] span").strip() == "Live")
     check("lang: save button EN", pg.text_content("#save-config").strip() == "Save")
-    pg.click("#nav .nav-tab[data-view=cameras]")
+    pg.click("#nav .nav-tab[data-view=preview]")
     pg.wait_for_timeout(800)
-    shot(pg, "18-english-cameras", full=True)
+    shot(pg, "18-english-live", full=True)
 
     # ── Theme toggle (dark→light) across views ────────────────────────
     pg.click("#nav .theme-btn")
     pg.wait_for_timeout(400)
     check("theme: light applied", pg.evaluate("document.documentElement.dataset.theme") == "light")
     shot(pg, "19-light-cameras", full=True)
-    pg.click("#nav .nav-tab[data-view=settings]")
+    pg.click("#nav .nav-tab[data-view=system]")
     pg.wait_for_timeout(800)
     shot(pg, "20-light-settings", full=True)
     pg.click("#nav .nav-tab[data-view=preview]")
@@ -619,15 +637,18 @@ with sync_playwright() as p:
         }
         return Math.round(w.getBoundingClientRect().height) - before}""")
     check("mobile: overlay sizing loop cannot grow the wrapper", growth == 0, f"grew {growth}px")
-    mp.click("#nav-mobile .nav-tab[data-view=cameras]")
+    mp.click("#nav-mobile .nav-tab[data-view=assistant]")
     mp.wait_for_timeout(1000)
-    shot(mp, "31-mobile-cameras", full=True)
-    mp.click("#nav-mobile .nav-tab[data-view=settings]")
+    shot(mp, "31-mobile-assistant", full=True)
+    mp.click("#nav-mobile .nav-tab[data-view=system]")
     mp.wait_for_timeout(1000)
     shot(mp, "32-mobile-settings", full=True)
-    mp.click("#nav-mobile .nav-tab[data-view=status]")
+    mp.click("#system-subnav .subnav-btn[data-subview=status]")
     mp.wait_for_timeout(1000)
     shot(mp, "33-mobile-status", full=True)
+    check("mobile: five bottom tabs",
+          mp.locator("#nav-mobile .nav-tab:not(.hidden)").count() == 5,
+          str(mp.locator("#nav-mobile .nav-tab:not(.hidden)").count()))
     # horizontal overflow check on every view
     overflow = mp.evaluate("document.documentElement.scrollWidth - document.documentElement.clientWidth")
     check("mobile: no horizontal overflow", overflow <= 0, f"{overflow}px overflow")

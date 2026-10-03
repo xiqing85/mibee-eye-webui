@@ -106,21 +106,19 @@ with sync_playwright() as p:
         sys.exit(1)
     pg.screenshot(path=str(OUT / "03-after-login.png"), full_page=True)
 
-    # -- cameras tab first: start a stopped camera (fresh notebook boots --
-    #    with the stream stopped; starting before the live check avoids a
-    #    false "video not advancing" there) --------------------------------
-    cam = pg.locator("#nav .nav-tab[data-view=cameras]")
-    if cam.count() and cam.first.is_visible():
-        cam.first.click()
-        pg.wait_for_timeout(1500)
-        start = pg.locator("#view-cameras button", has_text="启动").or_(
-            pg.locator("#view-cameras button", has_text="Start"))
+    # -- camera grid (lives inside the Live view since the 2026-10
+    #    redesign): start a stopped camera (fresh notebook boots with the
+    #    stream stopped; starting before the live check avoids a false
+    #    "video not advancing" there) --------------------------------------
+    grid = pg.locator("#cameras-section:not(.hidden-cap)")
+    if grid.count() and grid.first.is_visible():
+        start = pg.locator("#cameras-grid button", has_text="启动").or_(
+            pg.locator("#cameras-grid button", has_text="Start"))
         if start.count():
             start.first.click()
             pg.wait_for_timeout(5000)
         pg.screenshot(path=str(OUT / "04-cameras.png"), full_page=True)
-        pg.locator("#nav .nav-tab[data-view=preview]").first.click()
-        pg.wait_for_timeout(4000)
+        pg.wait_for_timeout(2000)
 
     # -- config round-trip save: re-fill the first editable field with its
     #    current value and save. Values are unchanged, so this is a no-op on
@@ -129,10 +127,18 @@ with sync_playwright() as p:
     #    BEFORE the live check: a save with config_apply=restart re-applies
     #    the pipeline, and breaking an active stream here would only add
     #    reconnect noise. ----------------------------------------------
-    tab = pg.locator("#nav .nav-tab[data-view=settings]")
-    if tab.count() and tab.first.is_visible():
-        tab.first.click()
+    def goto_system(subview):
+        pg.locator("#nav .nav-tab[data-view=system]").first.click()
+        pg.wait_for_timeout(600)
+        btn = pg.locator(f"#system-subnav .subnav-btn[data-subview={subview}]")
+        if btn.count() and btn.first.is_visible() and "active" not in (btn.first.get_attribute("class") or ""):
+            btn.first.click()
         pg.wait_for_timeout(1500)
+
+    # -- config round-trip: System ▸ Settings ------------------------------
+    tab = pg.locator("#nav .nav-tab[data-view=system]")
+    if tab.count() and tab.first.is_visible():
+        goto_system("settings")
         first_input = pg.locator(
             '#config-form input[type=text], #config-form input[type=number]').first
         if first_input.count():
@@ -191,11 +197,13 @@ with sync_playwright() as p:
         issues.append(("live", "no <video> element (no MJPEG fallback either)"))
     pg.screenshot(path=str(OUT / "05-live.png"), full_page=True)
 
-    # -- settings + status -------------------------------------------------
+    # -- settings + status (System sub-views) ------------------------------
     for view, shot in (("settings", "06-settings"), ("status", "07-status")):
-        tab = pg.locator(f"#nav .nav-tab[data-view={view}]")
-        if tab.count() and tab.first.is_visible():
-            tab.first.click()
+        btn = pg.locator(f"#system-subnav .subnav-btn[data-subview={view}]")
+        if btn.count() and btn.first.is_visible():
+            pg.locator("#nav .nav-tab[data-view=system]").first.click()
+            pg.wait_for_timeout(600)
+            btn.first.click()
             pg.wait_for_timeout(2000)
             if len(pg.inner_text("body")) < 80:
                 issues.append((view, "view looks empty"))
