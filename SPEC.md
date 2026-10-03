@@ -97,7 +97,7 @@ CSRF 契约：所有 `POST/PUT/DELETE/PATCH` 到 `/api/*`（auth 族除外：log
   "events": ["param_changed", "ai_detection"],
   "config_apply": {"default": "restart", "sections": {"imaging": "immediate"}},
   "restart": true,
-  "observability": {"metrics": true, "logs": true, "requests": true}
+  "observability": {"metrics": true, "logs": true, "requests": true, "traces": false, "model_metrics": false}
 }
 ```
 
@@ -114,7 +114,7 @@ CSRF 契约：所有 `POST/PUT/DELETE/PATCH` 到 `/api/*`（auth 族除外：log
 - `events`：SSE 实际会推送的事件词汇表（§6）。
 - `config_apply`：`"restart"`（写后需进程重启生效）/ `"immediate"`（立即生效），按配置节细化；节未列出时用 `default`。前端应在每个配置节标题处标注其生效时机，并在改动了 `restart` 节后向用户提供重启入口（§5.1）。可选布尔 `auto`（缺省 `false`）：为 `true` 时（Go 方言）改动 `restart` 节的**保存会使设备自动立即自重启**（保存响应即带 `applied:"restart"`），前端应进入统一重启等待流程（提示→轮询 `/api/health`→恢复后自动重载），而不是展示手动重启入口。同版本加法（2026-09-25）：Go 方言对**几何不变**的相机节变更（flips、0↔180、90↔270）不再整进程自重启，保存响应为 `applied:"camera_restart"`（就地重建采集/编码管线，见 §5 PUT 行注记）——前端对 `camera_restart` **不得**进入重启等待流程，直播页应改走流重建周期（stop→start）。
 - `restart`：设备支持 `POST /api/system/restart`（§5.1）。
-- `observability`：可观测能力（§3.2）；缺省（字段不存在）视为三项皆 `false`，前端隐藏资源监控图与日志/请求视图。
+- `observability`：可观测能力（§3.2）；缺省（字段或其内键不存在）视为 `false`，前端隐藏资源监控图与日志/请求视图。`traces`：对话级模型调用链追踪端点存在（§3.3）；`model_metrics`：`/metrics` 暴露每模型资源指标族（附录 A5 方言）。二者均为 v1 同版本加法（2026-10-04）。
 
 ### 3.2 可观测（Extension：`observability`）
 
@@ -164,7 +164,41 @@ CSRF 契约：所有 `POST/PUT/DELETE/PATCH` 到 `/api/*`（auth 族除外：log
 - `process.storage_bytes`：本服务的磁盘占用 = 录像数据目录实际大小（按录像索引累计；未启用录像时为 0）。
 - `process.traffic`：**应用归因**流量计数（非内核精确值）：HTTP 请求收发字节（中间件统计）、RTSP/RTP 出流字节、GB28181 出流字节。Linux 不提供按进程的内核网络计数，此字段为设备自行埋点的累计值，速率由前端按两次轮询差值计算。
 
-`/api/requests` 响应 data：`{"entries":[{"id":"a1b2c3","method":"GET","path":"/api/status","status":200,"duration_ms":3.2,"ts":1788320000}]}`，按时间倒序。中间件为每个 Web API 请求分配 `request_id`（响应头 `X-Request-Id` 回显），记录方法/路径/状态码/耗时；该 `request_id` 同时出现在 `/api/logs` 的相关条目中，用于设备级调用关联。RTSP/ONVIF/GB28181 独立端口面不在追踪范围（以 `/metrics` 计数器覆盖）。
+`/api/requests` 响应 data：`{"entries":[{"id":"a1b2c3","method":"GET","path":"/api/status","status":200,"duration_ms":3.2,"ts":1788320000}]}`，按时间倒序。中间件为每个 Web API 请求分配 `request_id`（响应头 `X-Request-Id` 回显），记录方法/路径/状态码/耗时；该 `request_id` 同时出现在 `/api/logs` 的相关条目中，用于设备级调用关联。RTSP/ONVIF/GB28181 独立端口面不在追踪范围（以 `/metrics` 计数器覆盖）。内部调用链的跨进程/跨工具导出（OTLP trace、W3C traceparent 注入）见 §3.3 与附录 A 方言。
+
+### 3.3 模型调用链追踪（Extension：`observability.traces`，v1 同版本加法 2026-10-04）
+
+对话级的**模型间调用链**记录：一次对话（HTTP 一次对话请求 / 语音一次唤醒会话）中每个被调用的模型（LLM / VLM / 云端模型 / 决策分类器 / TTS / 说话人声纹……）产生一个 span，含调用顺序（时间偏移）、嵌套关系（parent）、资源消耗（时长、进程 CPU 增量、token 数）。用于回答「这次回答经过了哪些模型、按什么顺序、各花了多少资源」。
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/traces/conversations?limit=` | 最近对话追踪摘要列表（`limit` 缺省 50 上限 200），按开始时间倒序，会话鉴权 |
+| GET | `/api/traces/conversations/{id}` | 单条追踪全量 span 列表；未知 `id` → 404，会话鉴权 |
+
+列表项：`{"id":"c_ab12…","origin":"chat"|"voice","started_at_ms":<epoch-ms>,"duration_ms":<总时长>,"turns":<轮数>,"models":["vlm","llm"],"status":"ok"|"partial"|"error"}`。
+
+详情响应 data：
+
+```json
+{
+  "id": "c_ab12…", "origin": "chat", "started_at_ms": 1788320000000,
+  "duration_ms": 4200, "open": false,
+  "spans": [
+    {"span_id": 1, "parent_id": null, "model": "vlm", "variant": "qwen3-vl-2b",
+     "label": "看图直答", "start_ms": 12, "duration_ms": 3800, "cpu_ms": 2900,
+     "status": "ok", "tokens_prompt": null, "tokens_completion": null,
+     "attributes": {"grounded": "vlm"}}
+  ]
+}
+```
+
+语义：
+- **conversation 定义**：`origin:"chat"` = 一次 HTTP 对话请求（`POST /api/chat` 族）；`origin:"voice"` = 一次语音唤醒会话——同一对话窗口（历史仍新鲜的 120 s 槽）内的连续轮次归同一 `id`，含跟问窗口内的轮次。
+- **span 时间**：`start_ms` 为相对对话开始的毫秒偏移；spans 按 `start_ms` 升序返回，`span_id` 为该对话内的递增序号。`parent_id` 表达嵌套（当前恒为顶层顺序链，字段为嵌套预留）。
+- **资源消耗**：`duration_ms` 恒有；`cpu_ms` 为该次调用期间**进程级 CPU 时间增量**（多线程推理的近似归因，设备尽力而为，可为 null）；`tokens_prompt`/`tokens_completion` 仅 token 计费模型（本地/云端 LLM）有，否则 null。`attributes` 为自由键值（如决策 `choice`、接地路径 `grounded`、TTS 语言）。
+- **状态**：span `status` ∈ `ok`|`error`；对话级 `status`：全部 ok=`ok`，含失败模型但整体有回复=`partial`，无任何成功模型=`error`。
+- **存储**：设备内存有界环形缓冲（无需持久化承诺），容量与逐对话 span 上限由设备方言定义；溢出丢最旧。
+- **外部采集**：同一调用链以 OTLP trace 导出（`observability` 配置的 OTLP endpoint 开启时，每 span 携带 `model`/`conversation.id` 属性，对话为根 span）；每模型聚合指标经 `/metrics`（`model_metrics` 能力）。本 API 面向设备自带 UI 的零依赖可视化。
 
 ## 4. 相机资源（Core）
 
@@ -359,7 +393,7 @@ MSE 流细则：init segment（`ftyp`+`moov`）只发一次，随后每访问单
 8. **配置文件格式**：Go YAML、Pi Rust TOML、notebook SQLite —— 对前端不可见，仅是 `PUT /api/config` 的落地方式。
 9. **设备级翻转（hflip/vflip）**：翻转烘焙进编码流，对所有观看端（RTSP/ONVIF/GB28181/录像/快照）持久生效，与浏览器端仅显示用的直播翻转按钮（localStorage）相互独立。当与旋转（#19）组合时，变换次序为**先 rotation、后 hflip/vflip**（翻转作用于旋转后的画面）。配置位置方言：rs 为 `/api/config` 的 `camera.hflip`/`camera.vflip`（bool，重启生效）；Go 为同名字段（经 libcamera transform，重启生效），且 Go 的成像端点（§4.5）收到 `VFlip`/`HFlip` 时同样转发落地为 `camera.vflip`/`camera.hflip` 并重启生效（响应附 `applied:"restart"`，为 §4.5「立即生效」的显式例外——rpicam-vid 无运行时翻转通道；值与现值相同的翻转请求为幂等 no-op：不写盘、不重启，响应不带 `applied` 字段），即 Go 端两类翻转是同一持久概念；notebook 为每相机 `PUT /api/cameras/{id}` 的 `config.hflip`/`config.vflip`（相机流 (重)启时生效，前端相机卡片提供翻转按钮并自动 stop→start）。
 10. **配置生效路径**：Go 保存即自动重启服务（`applied:"restart"` 落地为 SIGTERM 自重启；例外：几何不变的相机节变更（flips、0↔180、90↔270，有效分辨率不变 → SPS 不变）为 `applied:"camera_restart"`——就地换源相机管线，GB 注册/ONVIF/会话存活，不拆 GB 媒体会话；会话持久化在配置同目录的 `web-sessions.json`，自重启（保存/翻转/§5.1 显式重启）后浏览器免重登无感恢复，显式登出或密码重置仍清空全部会话）；rs 保存仅落盘，由用户经 `POST /api/system/restart`（§5.1）显式重启应用（会话同样持久化到配置同目录的 `web-sessions.json`，重启后保持登录）；notebook 按节热应用；2026-10-02 起（#32）提供 `POST /api/system/restart` 并通告 `capabilities.restart=true` + `config_apply.auto=true`——仅 `scene.voice.wake_word`（restart 类）的保存触发自动重启，其余 scene 键仍热生效。
-11. **可观测（§3.2）实现方言**：Go 保留 9100 独立 Prometheus 端口（历史抓取配置），同时 `/metrics` 挂在 Web 端口；rs 仅 Web 端口 `/metrics`。日志环形缓冲覆盖 log 门面（Go 为 slog 全量、rs 为协议库 log 门面）；rs 产品代码的历史 `println!` 输出仅进 journald 不进 `/api/logs`。请求追踪覆盖 Web API 面；RTSP/ONVIF/GB28181 独立端口面以 `/metrics` 计数器覆盖。notebook 后端尚未实现 §3.2（`capabilities.observability` 缺省，前端自动隐藏资源监控区）。
+11. **可观测（§3.2）实现方言**：Go 保留 9100 独立 Prometheus 端口（历史抓取配置），同时 `/metrics` 挂在 Web 端口；rs 仅 Web 端口 `/metrics`。日志环形缓冲覆盖 log 门面（Go 为 slog 全量、rs 为协议库 log 门面、notebook 为 tracing 全量）；rs 产品代码的历史 `println!` 输出仅进 journald 不进 `/api/logs`。请求追踪覆盖 Web API 面；RTSP/ONVIF/GB28181 独立端口面以 `/metrics` 计数器覆盖。（2026-10-04 更正：notebook 已实现 §3.2 全部三端点并通告 `capabilities.observability`。）
 12. **AI 检测（§4.6）方言**：notebook 为多相机设备，除规范端点 `GET /api/detections`（返回最近一次推理的相机结果）外，另提供逐相机扩展端点 `GET /api/cameras/{id}/detections`（响应结构同 §4.6：`{"detections","model","timestamp"}`，bbox 同为该相机原生流分辨率的视频像素坐标）。`ai_detection` SSE 事件（§6）的 `camera_id` 在 notebook 上为真实相机 UUID；Pi 设备恒为 `"0"`。**模型注册表（§4.6）**：notebook 的内置注册表只含 NanoDet 族条目（其解码器未实现 YOLOX，上传 `family` 仅接受 `nanodet`）；`ai_model_changed` 的 `camera_id` 为 `"all"`（设备级切换）；激活选择持久化在设备数据库 `ai.model` 设置（TOML `[ai]` 仅引导默认），重启后自动覆盖。
 13. **notebook GB35114 A 级子树**：`protocols.gb28181.gb35114`（`enabled`、`device_cert_file`、`device_key_file`、`platform_cert_file`、`server_id`），随 `PUT /api/config` 深合并热应用（嵌套节同样拒绝未知字段、兼容字符串布尔）。证书缺失/无效时 GB28181 拒绝启动（fail-closed），Web 与其他协议不受影响。
 14. **视频水印（§5.2）方言**：rs 为顶层 `watermark` TOML 节（`PUT /api/config` 落盘、`POST /api/system/restart` 生效，`config_apply.sections.watermark = "restart"`）；notebook 为 `protocols.watermark`（SQLite 持久化，设备级全局、作用于全部相机；相机流 (重)启时读取生效——与 `protocols.recording` 同为 read-at-use。水印启用时 MJPEG 相机的快照直通关闭，改为从带水印的 YUV 重编码）；Go 未实现（`watermark` 能力缺省 `false`，前端不渲染水印设置）——libcamera rpicam-apps 已移除 annotate 通道，实时水印需改造采集管线，待单独立项。
@@ -411,6 +445,9 @@ MSE 流细则：init segment（`ftyp`+`moov`）只发一次，随后每访问单
 34. **notebook 全量模型管理（§4.9 能力 `model_manager`，2026-10-03 起）**：全部 AI 能力（llm / vlm / 语音识别 / 三个 TTS 语音 / 人脸检测与识别 / 目标检测 / OCR / 意图分类 / 声纹）的候选模型目录 + 一键下载 + 切换。**存储布局**：模型统一落 `[models] dir`（缺省 `models`，相对工作目录）下由目录定义的子路径；`installed` 判定 = 目录声明的全部文件按 size 就位。**启用语义**：`apply:"restart"` 能力（除目标检测外全部）把选择持久化为 settings 袋的 `model.<capability>` 行（与 `scene.*` 同法：**不出现在 `/api/config` 与 `/api/settings` 响应里**），启动时 overlay 校验目录 id 后落到引擎配置键（如 `llm.model_path`、`voice.paraformer_model`、`tts.yue_model`、`face.detect_model`、`ocr.*_path`、`decision.*_path`），未知 id 告警跳过不阻断启动；`apply:"immediate"` 的 `ai` 能力把下载产物注册进 §4.6 的注册表（`source:"downloaded"`）后走既有 activate 热切换。**目录来源诚实性**：仅收录设备引擎实际支持的模型族（GGUF 用单文件量化档；sherpa 家族用 vits/paraformer 对应型号），无下载源的条目 `downloadable:false`。**激活后自动重启**：沿用 #32 的 `config_apply.auto=true` 统一自动重启等待流程。
 36. **notebook 语音波形（§6 `audio_level`，2026-10-03 起；同日修订电平映射）**：对话面板实时麦克风波形条。设备在 16 kHz 监听广播上挂一个电平抽头（`streaming::audio_level::LevelMeter`：100 ms 窗 RMS → **感知映射 −45…−5 dBFS 线性压到 0…1**——线性 RMS 下真实对话只有 0.03–0.1，波形条不可读，这是 2026-10-03 当日修订的原因；attack 0.6/release 0.3 平滑，门限以下恒 0，首个满窗即发不等节流），经 SSE `audio_level` 以 ≤10 Hz 推送 `{"level","timestamp"}`；音频监听随 voice/audio_ai/meeting 任一活跃而运行，`capabilities.events` 相应通告。前端（`waveform.js`）canvas 滚动条形图，10 Hz 输入用逐帧缓动补齐显示帧率，静音时收敛到细基线，说话态（level≥0.3，滞回 900 ms）点亮麦标与条带边缘并绘制峰值帽；数据停滞 6 s 视为过期不再动画。**隐私注记**：这是设备本来就在采集的监听流的幅度摘要——不新增任何音频采样，事件只含标量音量，永不含音频数据。
 35. **notebook 在线 AI（§4.10 能力 `cloud_ai`，2026-10-03 起）**：OpenRouter 接入。**存储**：云端配置存独立 SQLite 表（`cloud_config` 单行），**不进 settings 袋**——`GET /api/settings` 与 `/api/config` 均不可见，密钥仅 `api_key_set` 布尔可见。**路由**：provider 有效且密钥已设时，HTTP `POST /api/chat` 与语音自动应答同权走 OpenRouter（文本 `chat_model`；`vision:true` 用 `vision_model` + 最新帧 data URL）；失败回落本地（`fallback_local` 缺省 true）；`engine` 字段披露实际路径。**人设一致性**：云端请求沿用本地同款 system turn（人设/语言跟随/【画面】【本机】【联网】接地块），即接地能力不因上云丢失。`POST /api/cloud/test` 用 5s 级短超时最小补全。密钥长度上限 256 字节；`suggest` 为静态建议表，前端允许自由输入任意模型 id。
+37. **OTLP 追踪导出（三端，2026-10-04 起）**：设备内部调用链以 OpenTelemetry trace 经 OTLP gRPC（4317 惯例端口）导出到外部可观测工具（Jaeger/Tempo/SigNoz 等），`service.name` 恒 `mibee-eye`。配置方言：notebook 为 `[observability] otel_endpoint`（既有键）；rs 为 TOML `[observability] otlp_endpoint`（新，缺省空=关）；go 为 YAML `observability.otlp_endpoint`（新，缺省空=关）。开启后：Web API 请求建立根 span（提取 W3C `traceparent` 为父），内部调用链（采集→编码→分发、GB28181 注册/媒体会话、录像分段、AI 推理、对话模型链）为子 span；endpoint 不可达仅告警（fail-open，绝不影响服务）。日志仍走本地环 + Loki（notebook 方言）。
+38. **`/metrics` 资源与协议指标补齐（三端，2026-10-04 起）**：rs 既有 `mibee_system_*` / `mibee_process_*` 资源 gauge 族；go 与 notebook 补齐同域资源 gauge（进程 CPU%、RSS、FD 数、系统 CPU/内存/网络计数——指标名各设备自定义，附录 A5 惯例）。go 另接通 GB28181 库 metrics 接缝：注册尝试/成功/失败、心跳失败、INVITE 会话、PS 流出字节计数。存量死计数器（go 的 ONVIF 请求计数、rs 的 `AppMetrics` 族）接通真实埋点。
+39. **notebook 每模型资源指标 + 对话调用链（§3.3 实现，2026-10-04 起）**：① `/metrics` 新增 `mibee_model_*` 族：`mibee_model_inferences_total{model,variant}`、`mibee_model_inference_seconds`（直方图，秒）、`mibee_model_cpu_seconds`（直方图，单次调用进程 CPU 增量）、`mibee_model_inflight{model}`、`mibee_model_errors_total{model,variant}`、`mibee_model_tokens_total{model,variant,kind=prompt|completion}`（token 计费模型才有）。`model` = 模型目录能力 id（§4.9 目录 / §4.6 注册表 id，如 `llm`/`vlm`/`ai`/`voice.asr`/`tts.zh`/`face.recog`/`ocr`/`decision`/`speaker`/`audio_ai`/`meeting` + 云端 `cloud.chat`/`cloud.vision`）；`variant` = 具体模型（文件名词干或云端模型 id，用户自定义云端模型 id 会进入标签——基数由部署者自律）。② §3.3 对话追踪环：容量 200 对话 × 每对话 64 span；语音对话沿用既有 120 s 会话槽判同一 `conversation_id`。③ 同一棵 span 树经 OTLP 导出（#37），对话根 span 名 `conversation`，模型 span 名 `model_call` 并带 `model`/`conversation.id` 属性。
 ## 8. 附录 B：本规范取代的旧端点（迁移对照）
 
 | 旧端点（项目） | 新端点 |
