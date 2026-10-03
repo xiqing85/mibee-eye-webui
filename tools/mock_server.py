@@ -212,7 +212,11 @@ MODEL_CATALOG = [
     ]},
     {"id": "face.recog", "label": "Face recognition", "apply": "restart", "models": [
         {"id": "sface-2021dec", "name": "SFace 128-d", "size_bytes": 38696353,
-         "languages": [], "license": "Apache-2.0", "notes": "", "downloadable": False},
+         "languages": [], "license": "Apache-2.0", "notes": "", "downloadable": True},
+    ]},
+    {"id": "ocr", "label": "Text recognition (OCR)", "apply": "restart", "models": [
+        {"id": "ppocr-ch-v4det-v5rec", "name": "PP-OCRv4 det + PP-OCRv5 rec", "size_bytes": 21375344,
+         "languages": ["zh", "en"], "license": "Apache-2.0", "notes": "no mirror for this exact export", "downloadable": False},
     ]},
     {"id": "ai", "label": "Visual detection", "apply": "immediate", "models": [
         {"id": "nanodet-plus-m-320", "name": "NanoDet-Plus-m 320", "size_bytes": 4834000,
