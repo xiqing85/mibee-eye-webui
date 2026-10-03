@@ -187,7 +187,8 @@ CAPS = {
     "restart": True,
     "model_manager": True,
     "cloud_ai": True,
-    "observability": {"metrics": True, "logs": True, "requests": True},
+    "observability": {"metrics": True, "logs": True, "requests": True,
+                      "traces": True, "model_metrics": True},
 }
 
 # AI model catalog (SPEC §4.9) — mirrors the notebook dialect shape: a
@@ -304,6 +305,64 @@ _GRAY_JPEG = b"".fromhex(
 )
 
 AUTH_EXEMPT = {"/api/auth/login", "/api/auth/setup", "/api/auth/logout"}
+
+# ── conversation trace mock state (SPEC §3.3) ─────────────────────────
+
+_MOCK_TRACES = [
+    {
+        "id": "c_mock01", "origin": "chat", "started_at_ms": 1788320000000,
+        "duration_ms": 4180, "turns": 1, "models": ["vlm", "llm"], "status": "ok",
+        "open": False,
+        "spans": [
+            {"span_id": 1, "parent_id": None, "model": "vlm", "variant": "qwen3-vl-2b",
+             "label": "看图直答", "start_ms": 12, "duration_ms": 3720, "cpu_ms": 2950,
+             "status": "ok", "tokens_prompt": None, "tokens_completion": None,
+             "attributes": {"grounded": "vlm"}},
+            {"span_id": 2, "parent_id": None, "model": "llm", "variant": "qwen3-0.6b-q8_0",
+             "label": "本地应答", "start_ms": 3740, "duration_ms": 420, "cpu_ms": 390,
+             "status": "ok", "tokens_prompt": None, "tokens_completion": None,
+             "attributes": {"grounded": "none"}},
+        ],
+    },
+    {
+        "id": "c_mock02", "origin": "voice", "started_at_ms": 1788319000000,
+        "duration_ms": 6350, "turns": 2, "models": ["decision", "cloud.chat", "llm", "tts.zh"],
+        "status": "partial", "open": False,
+        "spans": [
+            {"span_id": 1, "parent_id": None, "model": "decision", "variant": "laya",
+             "label": "意图决策", "start_ms": 5, "duration_ms": 140, "cpu_ms": 120,
+             "status": "ok", "tokens_prompt": None, "tokens_completion": None,
+             "attributes": {"choice": "answer"}},
+            {"span_id": 2, "parent_id": None, "model": "cloud.chat", "variant": "qwen/qwen3-8b",
+             "label": "云端应答", "start_ms": 160, "duration_ms": 890, "cpu_ms": 12,
+             "status": "error", "tokens_prompt": None, "tokens_completion": None,
+             "attributes": {}},
+            {"span_id": 3, "parent_id": None, "model": "llm", "variant": "qwen3-0.6b-q8_0",
+             "label": "本地回落", "start_ms": 1060, "duration_ms": 4210, "cpu_ms": 3880,
+             "status": "ok", "tokens_prompt": 512, "tokens_completion": 96,
+             "attributes": {}},
+            {"span_id": 4, "parent_id": None, "model": "tts.zh", "variant": "vits-melo-tts",
+             "label": "语音播报", "start_ms": 5290, "duration_ms": 1050, "cpu_ms": 60,
+             "status": "ok", "tokens_prompt": None, "tokens_completion": None,
+             "attributes": {}},
+        ],
+    },
+]
+
+
+def _trace_summaries():
+    out = []
+    for tr in _MOCK_TRACES:
+        out.append({k: v for k, v in tr.items() if k != "spans"})
+    return out
+
+
+def _trace_detail(conv_id):
+    for tr in _MOCK_TRACES:
+        if tr["id"] == conv_id:
+            return tr
+    return None
+
 
 # ── observability mock state ─────────────────────────────────────────
 _METRICS_PREV = {"ts": None, "rx": None, "tx": None}
@@ -492,6 +551,25 @@ class Handler(BaseHTTPRequestHandler):
                 "# HELP mibee_eye_process_rss_bytes Process resident set size\n"
                 "# TYPE mibee_eye_process_rss_bytes gauge\n"
                 f"mibee_eye_process_rss_bytes {m['process']['rss_bytes']}\n"
+                "# HELP mibee_model_inferences_total Total model invocations\n"
+                "# TYPE mibee_model_inferences_total counter\n"
+                'mibee_model_inferences_total{model="ai",variant="nanodet-plus-m-320"} 428\n'
+                'mibee_model_inferences_total{model="llm",variant="qwen3-0.6b-q8_0"} 12\n'
+                'mibee_model_inferences_total{model="vlm",variant="qwen3-vl-2b"} 2\n'
+                "# HELP mibee_model_inference_seconds Wall duration of one invocation\n"
+                "# TYPE mibee_model_inference_seconds histogram\n"
+                'mibee_model_inference_seconds_sum{model="ai",variant="nanodet-plus-m-320"} 96.3\n'
+                'mibee_model_inference_seconds_sum{model="llm",variant="qwen3-0.6b-q8_0"} 41.7\n'
+                'mibee_model_inference_seconds_sum{model="vlm",variant="qwen3-vl-2b"} 74.2\n'
+                "# HELP mibee_model_cpu_seconds CPU delta during one invocation\n"
+                "# TYPE mibee_model_cpu_seconds histogram\n"
+                'mibee_model_cpu_seconds_sum{model="ai",variant="nanodet-plus-m-320"} 62.1\n'
+                'mibee_model_cpu_seconds_sum{model="llm",variant="qwen3-0.6b-q8_0"} 38.4\n'
+                'mibee_model_cpu_seconds_sum{model="vlm",variant="qwen3-vl-2b"} 70.9\n'
+                'mibee_model_errors_total{model="vlm",variant="qwen3-vl-2b"} 1\n'
+                'mibee_model_tokens_total{kind="prompt",model="llm",variant="qwen3-0.6b-q8_0"} 6144\n'
+                'mibee_model_tokens_total{kind="completion",model="llm",variant="qwen3-0.6b-q8_0"} 812\n'
+                'mibee_model_inflight{model="ai"} 1\n'
             )
             self.send_response(200)
             self.send_header("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
@@ -826,6 +904,14 @@ class Handler(BaseHTTPRequestHandler):
             return self.ok({"entries": _log_entries()})
         if path == "/api/requests":
             return self.ok({"entries": _request_entries()})
+        if path == "/api/traces/conversations":
+            return self.ok({"conversations": _trace_summaries()})
+        if path.startswith("/api/traces/conversations/"):
+            conv_id = path[len("/api/traces/conversations/"):]
+            detail = _trace_detail(conv_id)
+            if detail is None:
+                return self.err("not_found", "unknown conversation trace", 404)
+            return self.ok(detail)
         self.send_error(404)
 
     # ── API: POST ───────────────────────────────────────────────────
