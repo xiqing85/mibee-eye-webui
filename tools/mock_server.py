@@ -189,6 +189,25 @@ CAPS = {
     "cloud_ai": True,
     "observability": {"metrics": True, "logs": True, "requests": True,
                       "traces": True, "model_metrics": True},
+    # Boot-time feature admission snapshot (SPEC appendix A #40). Mock
+    # mimics a small-memory host: VLM + meeting are shed by the budget.
+    "resource": {
+        "mode": "auto",
+        "available_mib": 2364, "total_mib": 3816,
+        "budget_mib": 1596, "reserve_mib": 768,
+        "features": [
+            {"name": "ai", "cost_mib": 45, "admitted": True, "reason": ""},
+            {"name": "audio_ai", "cost_mib": 61, "admitted": True, "reason": ""},
+            {"name": "voice", "cost_mib": 334, "admitted": True, "reason": ""},
+            {"name": "llm", "cost_mib": 782, "admitted": True, "reason": ""},
+            {"name": "tts", "cost_mib": 292, "admitted": False, "reason": "off_budget"},
+            {"name": "decision", "cost_mib": 168, "admitted": False, "reason": "dependency"},
+            {"name": "face", "cost_mib": 84, "admitted": False, "reason": "off_config"},
+            {"name": "ocr", "cost_mib": 64, "admitted": True, "reason": ""},
+            {"name": "meeting", "cost_mib": 68, "admitted": False, "reason": "dependency"},
+            {"name": "vlm", "cost_mib": 1210, "admitted": False, "reason": "off_budget"},
+        ],
+    },
 }
 
 # AI model catalog (SPEC §4.9) — mirrors the notebook dialect shape: a
@@ -570,6 +589,19 @@ class Handler(BaseHTTPRequestHandler):
                 'mibee_model_tokens_total{kind="prompt",model="llm",variant="qwen3-0.6b-q8_0"} 6144\n'
                 'mibee_model_tokens_total{kind="completion",model="llm",variant="qwen3-0.6b-q8_0"} 812\n'
                 'mibee_model_inflight{model="ai"} 1\n'
+                "# HELP mibee_eye_resource_budget_mib Boot-time feature budget (SPEC A #40)\n"
+                "# TYPE mibee_eye_resource_budget_mib gauge\n"
+                "mibee_eye_resource_budget_mib 1596\n"
+                'mibee_eye_feature_admitted{name="ai"} 1\n'
+                'mibee_eye_feature_admitted{name="audio_ai"} 1\n'
+                'mibee_eye_feature_admitted{name="voice"} 1\n'
+                'mibee_eye_feature_admitted{name="llm"} 1\n'
+                'mibee_eye_feature_admitted{name="tts"} 0\n'
+                'mibee_eye_feature_admitted{name="decision"} 0\n'
+                'mibee_eye_feature_admitted{name="face"} 0\n'
+                'mibee_eye_feature_admitted{name="ocr"} 1\n'
+                'mibee_eye_feature_admitted{name="meeting"} 0\n'
+                'mibee_eye_feature_admitted{name="vlm"} 0\n'
             )
             self.send_response(200)
             self.send_header("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
