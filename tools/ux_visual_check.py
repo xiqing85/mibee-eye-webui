@@ -529,6 +529,15 @@ with sync_playwright() as p:
           pg.evaluate("fetch('/metrics').then(r => r.status)") == 200)
     shot(pg, "16b-status-observability", full=True)
 
+    # ── Resource profile (SPEC appendix A #40; mock: 10 features, 5 off) ──
+    check("res: profile card visible", pg.locator("#resource-card").is_visible())
+    check("res: all 10 feature rows", pg.locator("#resource-card .res-row").count() == 10)
+    check("res: every off row carries a reason",
+          pg.locator("#resource-card .res-row-off .res-reason").count() == 5)
+    check("res: budget summary rendered",
+          "MiB" in (pg.text_content("#resource-card .res-summary") or ""))
+    check("res: mode badge present", pg.locator("#resource-card .res-mode").count() == 1)
+
     # ── System ▸ Devices ───────────────────────────────────────────────
     pg.click("#system-subnav .subnav-btn[data-subview=devices]")
     pg.wait_for_timeout(1200)
