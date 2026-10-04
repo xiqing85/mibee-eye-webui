@@ -346,11 +346,19 @@ with sync_playwright() as p:
     # canvas actually paints (mock bursts every 2s).
     check("waveform: strip visible in chat card",
           pg.locator("#chat-waveform-wrap:not(.hidden)").is_visible())
+    # Poll up to ~9s for any canvas change: the mock's audio_level cadence
+    # can idle between two single samples (2026-10-04 first-run flake) —
+    # any observed difference proves the animation loop is live.
     wf_before = pg.evaluate("document.getElementById('chat-waveform').toDataURL().length")
-    pg.wait_for_timeout(2500)
-    wf_after = pg.evaluate("document.getElementById('chat-waveform').toDataURL().length")
-    check("waveform: canvas animates with audio_level events",
-          wf_after > 0 and wf_after != wf_before)
+    wf_animates = False
+    for _ in range(6):
+        pg.wait_for_timeout(1500)
+        wf_now = pg.evaluate("document.getElementById('chat-waveform').toDataURL().length")
+        if wf_now > 0 and wf_now != wf_before:
+            wf_animates = True
+            break
+        wf_before = wf_now
+    check("waveform: canvas animates with audio_level events", wf_animates)
     check("chat: scene badge on plain reply",
           pg.locator("#chat-log .chat-badge.scene").count() >= 1)
     pg.click("#chat-vision")
