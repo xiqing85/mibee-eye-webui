@@ -596,8 +596,8 @@ class Handler(BaseHTTPRequestHandler):
                 'mibee_eye_feature_admitted{name="audio_ai"} 1\n'
                 'mibee_eye_feature_admitted{name="voice"} 1\n'
                 'mibee_eye_feature_admitted{name="llm"} 1\n'
-                'mibee_eye_feature_admitted{name="tts"} 0
-mibee_eye_feature_admitted{name="decision"} 0\n'
+                'mibee_eye_feature_admitted{name="tts"} 0\n'
+                'mibee_eye_feature_admitted{name="decision"} 0\n'
                 'mibee_eye_feature_admitted{name="face"} 0\n'
                 'mibee_eye_feature_admitted{name="ocr"} 1\n'
                 'mibee_eye_feature_admitted{name="meeting"} 0\n'
