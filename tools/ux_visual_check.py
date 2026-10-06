@@ -368,6 +368,32 @@ with sync_playwright() as p:
     check("chat: vlm badge on vision reply",
           pg.locator("#chat-log .chat-badge.vlm").count() >= 1)
     pg.click("#chat-vision")  # leave it off for later legs
+    # Conversation records (SPEC §3.4): the human-readable turn log —
+    # seeded voice/http turns, no-reply pill, and the thinking toggle.
+    check("convlog: card visible (conversations cap)",
+          pg.locator("#convlog-card:not(.hidden)").is_visible())
+    check("convlog: seeded turns rendered",
+          pg.locator("#convlog-list .conv-turn").count() >= 4)
+    check("convlog: voice + http origin badges",
+          pg.locator("#convlog-list .trace-origin.voice").count() >= 2 and
+          pg.locator("#convlog-list .trace-origin.chat").count() >= 2)
+    check("convlog: no-reply turn pill",
+          pg.locator("#convlog-list .conv-turn .state-pill.off").count() >= 1)
+    check("convlog: engine pill on replied turns",
+          pg.locator("#convlog-list .conv-turn .state-pill.on").count() >= 3)
+    check("convlog: heard text rendered",
+          "小蜜蜂" in pg.locator("#convlog-list .conv-user").first.inner_text())
+    pg.locator("#convlog-list .conv-thinking-toggle").first.click()
+    pg.wait_for_timeout(150)
+    check("convlog: thinking entries expand",
+          pg.locator("#convlog-list .conv-think-entry").count() >= 2)
+    check("convlog: thinking entry carries source+note",
+          pg.locator("#convlog-list .conv-think-src").first.inner_text() != "" and
+          pg.locator("#convlog-list .conv-think-note").first.inner_text() != "")
+    pg.locator("#convlog-list .conv-thinking-toggle").first.click()
+    pg.wait_for_timeout(150)
+    check("convlog: thinking collapses",
+          pg.locator("#convlog-list .conv-think-entry").count() == 0)
     shot(pg, "15c-chat-assistant", full=True)
 
     # ── Records view (SPEC appendix A #24): list + filter + clear ─────

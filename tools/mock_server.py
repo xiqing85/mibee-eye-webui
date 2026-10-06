@@ -145,6 +145,53 @@ STATE = {
         ],
     },
     "meeting_seq": 1,
+    # Conversation records (SPEC §3.4): human-readable dialogue turns —
+    # heard/input text, internal "thinking" entries, AI reply + engine.
+    # Kept newest-first like the real endpoint.
+    "conversations": [
+        {"id": 4, "conversation_id": "c91af003c004", "origin": "voice",
+         "started_ms": 1759280004000,
+         "user_text": "小蜜蜂，帮我看着门口",
+         "thinking": [
+             {"source": "decision", "model": "laya",
+              "note": "意图=answer（置信度 0.91）", "duration_ms": 38},
+             {"source": "llm", "model": "qwen3-1.7b",
+              "note": "本地应答 · prompt 196 / completion 21 tok", "duration_ms": 2210},
+             {"source": "tts.zh", "model": "vits",
+              "note": "已播报（普通话）", "duration_ms": 3400},
+         ],
+         "reply_text": "好的，我会持续关注门口画面，有人出现会立刻提醒你。",
+         "engine": "local"},
+        {"id": 3, "conversation_id": "c91af003c004", "origin": "voice",
+         "started_ms": 1759279991000,
+         "user_text": "（电视声）",
+         "thinking": [
+             {"source": "decision", "model": "laya",
+              "note": "意图=ignore（置信度 0.88）→ 不回复", "duration_ms": 35},
+         ],
+         "reply_text": None, "engine": None},
+        {"id": 2, "conversation_id": "c91aef009c002", "origin": "http",
+         "started_ms": 1759279800000,
+         "user_text": "现在画面里有几个人？",
+         "thinking": [
+             {"source": "cloud.chat", "model": "openai/gpt-4o-mini",
+              "note": "云端失败：timeout — 回落本地", "duration_ms": 5012},
+             {"source": "llm", "model": "qwen3-1.7b",
+              "note": "本地应答 · 画面上下文：2×person, 1×chair · prompt 176 / completion 17 tok",
+              "duration_ms": 2311},
+         ],
+         "reply_text": "画面里有 2 个人和 1 把椅子。",
+         "engine": "local"},
+        {"id": 1, "conversation_id": "c91aef005c001", "origin": "http",
+         "started_ms": 1759279700000,
+         "user_text": "这张图里有什么？",
+         "thinking": [
+             {"source": "cloud.vision", "model": "openai/gpt-4o-mini",
+              "note": "云端看图应答", "duration_ms": 4180},
+         ],
+         "reply_text": "画面是一间客厅，沙发上有一个人。",
+         "engine": "cloud"},
+    ],
 }
 
 CAPS = {
@@ -179,7 +226,7 @@ CAPS = {
     "substream": True,
     "webrtc": False,
     "events": ["camera_added", "camera_offlined", "param_changed", "ai_detection",
-               "ai_model_changed", "recording", "status", "alarm", "alarm_description", "voice_transcript", "chat_reply", "zone_event", "voice_decision", "meeting_state", "model_task", "audio_level"],
+               "ai_model_changed", "recording", "status", "alarm", "alarm_description", "voice_transcript", "chat_reply", "conversation", "zone_event", "voice_decision", "meeting_state", "model_task", "audio_level"],
     "config_apply": {"default": "restart", "sections": {"imaging": "immediate",
                                                         # demonstrates the immediate badge on a real config section
                                                         "logging": "immediate",
@@ -189,6 +236,8 @@ CAPS = {
     "cloud_ai": True,
     "observability": {"metrics": True, "logs": True, "requests": True,
                       "traces": True, "model_metrics": True},
+    # Conversation records (SPEC §3.4) — the human-readable dialogue log.
+    "conversations": True,
     # Boot-time feature admission snapshot (SPEC appendix A #40). Mock
     # mimics a small-memory host: VLM + meeting are shed by the budget.
     "resource": {
@@ -492,6 +541,13 @@ def ai_thread():
         if fn % 15 == 1:
             sse_broadcast("alarm", {"camera_id": "0", "active": True, "source": "ai",
                                     "targets": 1, "timestamp": int(time.time() * 1000)})
+        # Conversation turns (SPEC §3.4) — a fresh voice turn every 24s so
+        # the live SSE path stays observable.
+        if fn % 12 == 7:
+            turn = dict(STATE["conversations"][0])
+            turn["id"] = 1000 + fn
+            turn["started_ms"] = int(time.time() * 1000)
+            sse_broadcast("conversation", turn)
         # Mic level (SPEC §6 audio_level) — burst pattern: 4s speech-like
         # pulses then 2s silence, so the waveform visibly dances and floors.
         if fn % 3 != 0:
@@ -944,6 +1000,15 @@ class Handler(BaseHTTPRequestHandler):
             if detail is None:
                 return self.err("not_found", "unknown conversation trace", 404)
             return self.ok(detail)
+        if path == "/api/conversations":
+            # Conversation records (SPEC §3.4): newest first, limit clamp.
+            from urllib.parse import parse_qs, urlparse
+            q = parse_qs(urlparse(self.path).query)
+            try:
+                limit = min(max(int((q.get("limit") or ["50"])[0]), 1), 200)
+            except ValueError:
+                limit = 50
+            return self.ok({"conversations": STATE["conversations"][:limit]})
         self.send_error(404)
 
     # ── API: POST ───────────────────────────────────────────────────

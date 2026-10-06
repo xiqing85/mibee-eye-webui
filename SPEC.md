@@ -97,7 +97,8 @@ CSRF 契约：所有 `POST/PUT/DELETE/PATCH` 到 `/api/*`（auth 族除外：log
   "events": ["param_changed", "ai_detection"],
   "config_apply": {"default": "restart", "sections": {"imaging": "immediate"}},
   "restart": true,
-  "observability": {"metrics": true, "logs": true, "requests": true, "traces": false, "model_metrics": false}
+  "observability": {"metrics": true, "logs": true, "requests": true, "traces": false, "model_metrics": false},
+  "conversations": false
 }
 ```
 
@@ -116,6 +117,7 @@ CSRF 契约：所有 `POST/PUT/DELETE/PATCH` 到 `/api/*`（auth 族除外：log
 - `restart`：设备支持 `POST /api/system/restart`（§5.1）。
 - `observability`：可观测能力（§3.2）；缺省（字段或其内键不存在）视为 `false`，前端隐藏资源监控图与日志/请求视图。`traces`：对话级模型调用链追踪端点存在（§3.3）；`model_metrics`：`/metrics` 暴露每模型资源指标族（附录 A5 方言）。二者均为 v1 同版本加法（2026-10-04）。
 - `resource`：启动期功能资源门控快照（notebook 方言，附录 A #40）。对象含内存预算与逐功能准入表；键不存在视为无此能力（旧固件/其余方言），前端隐藏资源档位卡。v1 同版本加法（2026-10-04）。
+- `conversations`：对话交互记录端点存在（§3.4）——含 SSE `conversation` 事件的通告门控。缺省（键不存在）视为 `false`，前端隐藏对话记录卡。v1 同版本加法（2026-10-06）。
 
 ### 3.2 可观测（Extension：`observability`）
 
@@ -200,6 +202,49 @@ CSRF 契约：所有 `POST/PUT/DELETE/PATCH` 到 `/api/*`（auth 族除外：log
 - **状态**：span `status` ∈ `ok`|`error`；对话级 `status`：全部 ok=`ok`，含失败模型但整体有回复=`partial`，无任何成功模型=`error`。
 - **存储**：设备内存有界环形缓冲（无需持久化承诺），容量与逐对话 span 上限由设备方言定义；溢出丢最旧。
 - **外部采集**：同一调用链以 OTLP trace 导出（`observability` 配置的 OTLP endpoint 开启时，每 span 携带 `model`/`conversation.id` 属性，对话为根 span）；每模型聚合指标经 `/metrics`（`model_metrics` 能力）。本 API 面向设备自带 UI 的零依赖可视化。
+
+### 3.4 对话交互记录（Extension：`conversations`，v1 同版本加法 2026-10-06）
+
+人读的**对话逐轮记录**：用户说了什么（HTTP 提问文本或语音转写原文）、设备内部"想了什么"（每次内部模型调用/路由决策的摘要条目，即"思考过程"）、AI 最终答了什么、实际用了哪个引擎。与 §3.3 互补：§3.3（指标向）回答「这轮对话经过哪些模型、按什么顺序、各耗多少资源」；本节（内容向）回答「听到了什么、内部判断了什么、回答了什么」。语音交互发生在浏览器之外（对着设备说话），此端点是这些对话在 Web 界面可见的唯一载体。
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/conversations?limit=` | 最近对话轮记录（`limit` 缺省 50 上限 200），按时间倒序，会话鉴权 |
+
+响应 data：
+
+```json
+{
+  "conversations": [
+    {
+      "id": 42,
+      "conversation_id": "c18f0a2c0001",
+      "origin": "voice",
+      "started_ms": 1788320000000,
+      "user_text": "今天天气怎么样",
+      "thinking": [
+        {"source": "decision", "model": "laya",
+         "note": "意图=answer（置信度 0.93）", "duration_ms": 41},
+        {"source": "cloud.chat", "model": "openai/gpt-4o-mini",
+         "note": "云端失败：timeout — 回落本地", "duration_ms": 5012},
+        {"source": "llm", "model": "qwen3-1.7b",
+         "note": "本地应答 · prompt 176 / completion 17 tok", "duration_ms": 2311}
+      ],
+      "reply_text": "今天广州晴，最高 31 度。",
+      "engine": "local"
+    }
+  ]
+}
+```
+
+语义：
+- **origin**：`"voice"` = 一次语音交互轮（含跟问窗口轮次；`conversation_id` 与 §3.3 的 voice 会话同源——120 s 槽内连续轮次同 id）；`"http"` = 一次 `POST /api/chat` 请求（`conversation_id` = 该请求的 §3.3 chat trace id）。
+- **user_text**：用户输入原文（语音轮 = ASR 转写文本）。**无回复轮也记录**：决策判为 `ignore`（噪声/误唤醒）的语音轮 `reply_text`/`engine` 为 `null`，`thinking` 里保留决策结论条目——诚实呈现"这轮为什么没有回答"。
+- **thinking**：内部调用人读摘要（**非逐字 prompt**），每条对应一次内部模型调用或路由决策。`source` 与 §3.3 span 的 `model` 同名空间（`decision`/`cloud.chat`/`cloud.vision`/`vlm`/`llm`/`tts.*` 等）；`note` 为设备生成的人读摘要（token 数、置信度、失败原因与回落路径等），截断于 200 字符；`duration_ms` 恒有。引擎回落的失败腿保留为独立条目（如上例 cloud 失败 + llm 兜底）——资源消耗的转移在记录中同样可见。
+- **reply_text / engine**：AI 最终回复文本与实际引擎（`"cloud"`|`"local"`|`"vlm"`）；无回复轮两者为 `null`。
+- **存储**：设备持久存储（SQLite，FIFO 封顶由方言定义；附录 A #41）；写入失败只记日志，绝不影响对话管线（fail-open）。
+- **隐私**：记录含转写与回复原文，仅存设备本机、不外发；方言提供总开关（关闭后能力通告为 false、不记录）。
+- **实时**：一轮结束（voice 或 http）经 SSE `conversation` 事件（§6）推送该轮完整对象；通告门控 = `capabilities.conversations`。
 
 ## 4. 相机资源（Core）
 
@@ -379,6 +424,7 @@ MSE 流细则：init segment（`ftyp`+`moov`）只发一次，随后每访问单
 | `model_task` | `{"task_id","capability","model_id","status","progress",…}` | 模型下载任务状态变化（§4.9，v1 同版本加法）：`status` ∈ downloading/verifying/done/failed/canceled，节流 ≥0.5s；通告门控 `model_manager` |
 | `audio_level` | `{"level":0..1,"timestamp"}` | 麦克风实时音量（v1 同版本加法 2026-10-03，方言附录 A #36；同日修订为感知映射）：**level 为感知刻度，不是线性 RMS**——窗口 RMS 按 dBFS 线性映射（−45…−5 dB → 0…1），门限（<−45 dB）以下恒为 0；≤10 Hz；通告门控 = 设备侧音频监听在运行（voice/audio_ai/meeting 任一活跃）——前端语音对话波形条的数据源 |
 | `alarm` | `{"camera_id","active","source","targets","timestamp"}` | 告警上升沿（v1 同版本加法）：与 GB28181 告警 NOTIFY 同源同门控（上升沿 + 冷却 + 运行时开关），在边缘被接受时即推送、与平台侧投递成败无关；`active` 恒为 `true`（上升沿事件），`source` 目前恒为 `"ai"`，`targets` 为触发目标数，`timestamp` epoch-ms。通告门控为 AI 启用（2026-09-20 起不再要求 GB28181 启用，见附录 A #18） |
+| `conversation` | `{"id","conversation_id","origin","user_text","thinking":[…],"reply_text","engine"}` | 一轮对话交互完成（v1 同版本加法 2026-10-06，§3.4）：单轮完整记录对象，含无回复轮（`reply_text:null`）；通告门控 `capabilities.conversations`（notebook 方言附录 A #41） |
 | `recording` | `{"camera_id","active"}` | 录像启停 |
 | `status` | `{"uptime",...}` | 周期状态摘要（可选） |
 
@@ -450,6 +496,9 @@ MSE 流细则：init segment（`ftyp`+`moov`）只发一次，随后每访问单
 38. **`/metrics` 资源与协议指标补齐（三端，2026-10-04 起）**：rs 既有 `mibee_system_*` / `mibee_process_*` 资源 gauge 族；go 与 notebook 补齐同域资源 gauge（进程 CPU%、RSS、FD 数、系统 CPU/内存/网络计数——指标名各设备自定义，附录 A5 惯例）。go 另接通 GB28181 库 metrics 接缝：注册尝试/成功/失败、心跳失败、INVITE 会话、PS 流出字节计数。存量死计数器（go 的 ONVIF 请求计数、rs 的 `AppMetrics` 族）接通真实埋点。
 39. **notebook 每模型资源指标 + 对话调用链（§3.3 实现，2026-10-04 起）**：① `/metrics` 新增 `mibee_model_*` 族：`mibee_model_inferences_total{model,variant}`、`mibee_model_inference_seconds`（直方图，秒）、`mibee_model_cpu_seconds`（直方图，单次调用进程 CPU 增量）、`mibee_model_inflight{model}`、`mibee_model_errors_total{model,variant}`、`mibee_model_tokens_total{model,variant,kind=prompt|completion}`（token 计费模型才有）。`model` = 模型目录能力 id（§4.9 目录 / §4.6 注册表 id，如 `llm`/`vlm`/`ai`/`voice.asr`/`tts.zh`/`face.recog`/`ocr`/`decision`/`speaker`/`audio_ai`/`meeting` + 云端 `cloud.chat`/`cloud.vision`）；`variant` = 具体模型（文件名词干或云端模型 id，用户自定义云端模型 id 会进入标签——基数由部署者自律）。② §3.3 对话追踪环：容量 200 对话 × 每对话 64 span；语音对话沿用既有 120 s 会话槽判同一 `conversation_id`。③ 同一棵 span 树经 OTLP 导出（#37），对话根 span 名 `conversation`，模型 span 名 `model_call` 并带 `model`/`conversation.id` 属性。
 40. **notebook 启动期功能资源门控（2026-10-04 起）**：小内存主机不整启全部 AI 功能——按启动时可用内存做预算制准入。配置节 `[resources]`（既有 `auto_tier` 为 LLM 模型选档，见 #30-E）新键：`feature_gate`（`"auto"` 缺省 = 启用门控；`"all"` = 显式全启，即旧行为）与 `reserve_mib`（缺省 512；预算 MiB = 启动时 MemAvailable − reserve——MemAvailable 本身已含可回收页缓存，reserve 只留 OS 抖动余量）。**决策算法（纯启动期）**：按固定优先级 `ai → audio_ai → voice → llm → tts → decision → face → ocr → meeting → vlm` 贪心准入；每功能成本 = 已配置模型文件的**实际字节数**之和 × 1.15（ORT 会话全驻留 / llama.cpp mmap 的近似）+ 每引擎固定开销（40–80 MiB）；累加超出预算即不准入该功能（其后更便宜的功能仍可尝试准入）；`meeting` 与 `decision` 依赖 `voice` 的模型（voice 不准入则二者一并不准入）。LLM 先按 #30-E 解析档位模型，成本按解析后的实际文件计。未获准入的功能按"配置关闭"构造引擎（fail-open 报 inactive），准入原因进 capabilities。模型文件缺失按成本 0 计（引擎自身的 fail-open 原因照常浮现）。**暴露**：`capabilities.resource` 对象 `{mode, available_mib, total_mib, budget_mib, reserve_mib, features:[{name, cost_mib, admitted, reason}]}`（§3.1 加法键；`reason` 为机器码——`""` 准入 / `"off_config"` 配置未启用 / `"off_budget"` 预算不足 / `"dependency"` 依赖功能未准入，前端据此本地化，未知码原样显示）；`/metrics` 新增 gauge `mibee_eye_resource_budget_mib` 与 `mibee_eye_feature_admitted{name}`（1=准入/0=未准予或未配置）——实时可用内存沿用 #38 既有资源 gauge。运行期不做驱逐：门控是启动期决策，重启按届时水位重算；改配置 `[resources]` 需重启生效（`config_apply` restart 节）。
+41. **notebook 对话交互记录（§3.4 实现，2026-10-06 起）**：`GET /api/conversations?limit=`（缺省 50 上限 200，倒序）+ SSE `conversation` 事件 + SQLite `conversation_turns` 表（FIFO 封顶 1000 行，插入时修剪，`hearing_records` 同法）。采集点：**语音轮**（120 s 会话槽，`conversation_id` 复用 §3.3 voice trace id）——ASR 转写为 `user_text`，意图决策（`decision`）、云端应答/失败回落（`cloud.chat`）、本地 LLM（`llm`，带 prompt/completion token 数）、TTS 播报（`tts.*`）各产一条 thinking 条目，决策判 `ignore` 的轮次照常落库（`reply_text:null`）；**HTTP 轮**——`POST /api/chat` 每请求一轮，云端看图/云端文本/本地 VLM/本地 LLM 各腿（含失败回落腿）均记 thinking，`conversation_id` = 该请求的 §3.3 chat trace id。`note` 截断 200 字符。配置 `[conversations] enabled`（缺省 `true`，隐私总开关——`false` 时不记录、不通告该能力）。写入失败仅告警（fail-open）。`capabilities.conversations` 通告（= `enabled`）。
+42. **notebook 桌面集成（托盘图标 + 桌面通知，2026-10-06 起）**：部署在有桌面会话的 Linux 上时的本机存在感，全部 fail-open。配置 `[desktop]`：`tray`（缺省 `true`）、`notifications`（缺省 `true`，告警桌面通知）、`notify_conversations`（缺省 `false`，语音回复完成时也发桌面通知，正文 = 回复截断）。**会话探测**：`DBUS_SESSION_BUS_ADDRESS` 已设或 `$XDG_RUNTIME_DIR/bus` 存在视为有桌面会话；无 → 托盘与通知整体静默跳过（INFO 一次，headless 服务器行为零变化）。**托盘**（StatusNotifierItem/kstatusnotifieritem，ksni 实现）：图标 + 状态标题，菜单「打开 Web 界面」以 `xdg-open` 打开本机管理 URL（`[web] http_port` 非零时 `http://127.0.0.1:{http_port}`，否则 `https://127.0.0.1:{port}`）；无托盘宿主（如无扩展的 GNOME）时安静等待，不报错。**通知**（org.freedesktop.Notifications）：视觉/声音/区域三类告警上升沿各自发一条（复用 §6 `alarm` 的三处扇出点，视觉 `检测到 N 个目标`、声音 `听到：{类别}`、区域 `区域事件：{zone}`）；首次发送失败即缓存禁用本特性，不再重试刷日志。无新 API 面、无新 SSE 事件。
+
 ## 8. 附录 B：本规范取代的旧端点（迁移对照）
 
 | 旧端点（项目） | 新端点 |
