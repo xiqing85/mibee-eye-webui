@@ -830,6 +830,11 @@ class Handler(BaseHTTPRequestHandler):
             removed = len(STATE["hearing_records"])
             STATE["hearing_records"] = []
             return self.ok({"applied": "immediate", "removed": removed})
+        # Conversation records (SPEC §3.4): clear all.
+        if path == "/api/conversations":
+            removed = len(STATE["conversations"])
+            STATE["conversations"] = []
+            return self.ok({"applied": "immediate", "removed": removed})
         if path.startswith("/api/faces/"):
             name = path.rsplit("/", 1)[1]
             st = STATE["faces"]
