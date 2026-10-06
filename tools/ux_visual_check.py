@@ -394,6 +394,23 @@ with sync_playwright() as p:
     pg.wait_for_timeout(150)
     check("convlog: thinking collapses",
           pg.locator("#convlog-list .conv-think-entry").count() == 0)
+    # Clear-all with confirmation (SPEC §3.4 DELETE): cancel keeps rows,
+    # confirm empties the list.
+    pg.click("#convlog-clear")
+    pg.wait_for_timeout(150)
+    check("convlog: clear confirm dialog shown",
+          pg.locator("#confirm-overlay").is_visible())
+    pg.click("#confirm-cancel")
+    pg.wait_for_timeout(150)
+    check("convlog: cancel keeps turns",
+          pg.locator("#convlog-list .conv-turn").count() >= 4)
+    pg.click("#convlog-clear")
+    pg.wait_for_timeout(150)
+    pg.click("#confirm-ok")
+    pg.wait_for_timeout(600)
+    check("convlog: confirm clears to empty state",
+          pg.locator("#convlog-list .conv-turn").count() == 0 and
+          pg.locator("#convlog-list .record-empty").count() == 1)
     shot(pg, "15c-chat-assistant", full=True)
 
     # ── Records view (SPEC appendix A #24): list + filter + clear ─────
