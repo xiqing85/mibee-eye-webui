@@ -44,7 +44,7 @@ python3 -m venv .venv && .venv/bin/pip install playwright
 Run (handles first-run setup / wrong password / login / camera start / live video playback progress / all views / language & theme / logout; screenshots land in `tmp/walkthrough-<tag>/`; non-zero exit = something is wrong):
 
 ```bash
-.venv/bin/python tools/ux_visual_check.py                                  # mock: 139 interaction/visual assertions + screenshots (incl. resource-profile card)
+.venv/bin/python tools/ux_visual_check.py                                  # mock: 148 interaction/visual assertions + screenshots (incl. resource-profile + conversation-record cards)
 .venv/bin/python tools/browser_walkthrough.py http://<rs-device-ip>:8088 <password> admin rs
 .venv/bin/python tools/browser_walkthrough.py http://<go-device-ip>:8088 <password> admin go
 .venv/bin/python tools/browser_walkthrough.py https://127.0.0.1:8443 <password> admin nb
