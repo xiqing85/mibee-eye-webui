@@ -128,6 +128,18 @@ STATE = {
          "created_at": "2026-09-29 06:00:00"},
     ],
     "enrollment": None,
+    # Face recognition enrollments (SPEC appendix A #33) — same shape as
+    # the speakers block; GET /api/faces serves it (the old mock had
+    # only the POST/DELETE handlers, so the records-page faces card
+    # never loaded against it).
+    "faces": {
+        "faces": [
+            {"id": 1, "name": "mickey", "dim": 128,
+             "created_at": "2026-10-02 06:00:00"},
+        ],
+        "enrollment": None,
+        "capable": True,
+    },
     # Meetings (SPEC appendix A #27): the mock simulates the async
     # pipeline — stop flips the row to processing with a wall-clock
     # marker; the next list/get after 2 s finalizes it with segments.
@@ -1000,6 +1012,8 @@ class Handler(BaseHTTPRequestHandler):
             if detail is None:
                 return self.err("not_found", "unknown conversation trace", 404)
             return self.ok(detail)
+        if path == "/api/faces":
+            return self.ok(STATE["faces"])
         if path == "/api/conversations":
             # Conversation records (SPEC §3.4): newest first, limit clamp.
             from urllib.parse import parse_qs, urlparse
