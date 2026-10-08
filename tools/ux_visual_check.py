@@ -324,7 +324,7 @@ with sync_playwright() as p:
     pg.click("#zones-close")
     pg.wait_for_timeout(200)
 
-    # ── Assistant view (chat inline since the redesign) + one exchange ─
+    # ── Assistant view (voiceprint hero + chat + thinking + skills) ────
     check("assistant: tab visible", pg.locator("#nav .nav-tab[data-view=assistant]").is_visible())
     pg.click("#nav .nav-tab[data-view=assistant]")
     pg.wait_for_timeout(600)
@@ -333,6 +333,56 @@ with sync_playwright() as p:
     check("assistant: speakers card in view",
           pg.locator("#view-assistant #speakers-card").count() == 1 and
           pg.locator("#view-assistant #faces-card").count() == 1)
+    # Voiceprint hero (SPEC §6 audio_level + agent_step): the state badge
+    # renders and the canvas actually paints (mock bursts every 2s).
+    check("hero: card visible (voice cap)",
+          pg.locator("#agent-hero:not(.hidden)").is_visible())
+    check("hero: state badge rendered",
+          pg.locator("#agent-state .agent-dot").count() == 1 and
+          pg.locator("#agent-state-label").inner_text() != "")
+    # Poll up to ~9s for any canvas change: the animation loop always
+    # runs (idle breathing), so any difference proves it is live.
+    wf_before = pg.evaluate("document.getElementById('agent-waveform').toDataURL().length")
+    wf_animates = False
+    for _ in range(6):
+        pg.wait_for_timeout(1500)
+        wf_now = pg.evaluate("document.getElementById('agent-waveform').toDataURL().length")
+        if wf_now > 0 and wf_now != wf_before:
+            wf_animates = True
+            break
+        wf_before = wf_now
+    check("hero: voiceprint canvas animates", wf_animates)
+    # Restored dialogue history (SPEC §3.4): seeded turns render as
+    # WeChat-style rows with avatars, engine pills, a no-reply turn, and
+    # the tool-calling turn's chat-tool card.
+    check("chat: history restored (conversations cap)",
+          pg.locator("#chat-log .chat-row").count() >= 9)
+    check("chat: avatars on both sides",
+          pg.locator("#chat-log .chat-avatar.theirs").count() >= 4 and
+          pg.locator("#chat-log .chat-avatar.mine").count() >= 4)
+    check("chat: voice turn carries heard badge",
+          pg.locator("#chat-log .chat-badge.voice").count() >= 1)
+    check("chat: no-reply turn pill",
+          pg.locator("#chat-log .state-pill.off").count() >= 1)
+    check("chat: engine tag on replies",
+          pg.locator("#chat-log .chat-engine").count() >= 3)
+    check("chat: tool card from thinking entries",
+          pg.locator("#chat-log .chat-tool").count() >= 1 and
+          "weather.current" in pg.locator("#chat-log .chat-tool-name").first.inner_text())
+    check("chat: tool card shows result",
+          "31" in pg.locator("#chat-log .chat-tool-result").first.inner_text())
+    # Thinking drawer on AI bubbles (SPEC §3.4 entries).
+    pg.locator("#chat-log .chat-think-toggle").first.click()
+    pg.wait_for_timeout(150)
+    check("chat: thinking drawer expands",
+          pg.locator("#chat-log .chat-think-entry").count() >= 2)
+    check("chat: thinking entry carries source+note",
+          pg.locator("#chat-log .chat-think-src").first.inner_text() != "" and
+          pg.locator("#chat-log .chat-think-note").first.inner_text() != "")
+    pg.locator("#chat-log .chat-think-toggle").first.click()
+    pg.wait_for_timeout(150)
+    check("chat: thinking drawer collapses",
+          pg.locator("#chat-log .chat-think:not(.hidden) .chat-think-entry").count() == 0)
     # Grounded chat (#29): the eye toggle appears on VLM-capable mocks;
     # a plain reply carries a "scene" badge, a vision turn a "vlm" badge.
     check("chat: vision toggle visible (vlm cap)",
@@ -341,26 +391,20 @@ with sync_playwright() as p:
     pg.click("#chat-send")
     pg.wait_for_timeout(800)
     check("chat: reply bubble rendered",
-          pg.locator("#chat-log .chat-bubble").count() >= 2)
-    # Voice waveform (SPEC §6 audio_level): the strip renders and the
-    # canvas actually paints (mock bursts every 2s).
-    check("waveform: strip visible in chat card",
-          pg.locator("#chat-waveform-wrap:not(.hidden)").is_visible())
-    # Poll up to ~9s for any canvas change: the mock's audio_level cadence
-    # can idle between two single samples (2026-10-04 first-run flake) —
-    # any observed difference proves the animation loop is live.
-    wf_before = pg.evaluate("document.getElementById('chat-waveform').toDataURL().length")
-    wf_animates = False
-    for _ in range(6):
-        pg.wait_for_timeout(1500)
-        wf_now = pg.evaluate("document.getElementById('chat-waveform').toDataURL().length")
-        if wf_now > 0 and wf_now != wf_before:
-            wf_animates = True
-            break
-        wf_before = wf_now
-    check("waveform: canvas animates with audio_level events", wf_animates)
+          pg.locator("#chat-log .chat-bubble").count() >= 10)
     check("chat: scene badge on plain reply",
           pg.locator("#chat-log .chat-badge.scene").count() >= 1)
+    # Agent tools (SPEC §3.5): a weather question round-trips the
+    # tool_calls field and renders a live tool card on the reply. (>= —
+    # the mock's periodic SSE voice turn also carries a weather card.)
+    tools_before = pg.locator("#chat-log .chat-tool").count()
+    pg.fill("#chat-input", "今天天气怎么样")
+    pg.click("#chat-send")
+    pg.wait_for_timeout(800)
+    check("chat: tool_calls render on weather reply",
+          pg.locator("#chat-log .chat-tool").count() >= tools_before + 1)
+    check("chat: tool card carries duration",
+          pg.locator("#chat-log .chat-tool-dur").last.inner_text() != "")
     pg.click("#chat-vision")
     pg.fill("#chat-input", "你能看到我吗")
     pg.click("#chat-send")
@@ -368,49 +412,88 @@ with sync_playwright() as p:
     check("chat: vlm badge on vision reply",
           pg.locator("#chat-log .chat-badge.vlm").count() >= 1)
     pg.click("#chat-vision")  # leave it off for later legs
-    # Conversation records (SPEC §3.4): the human-readable turn log —
-    # seeded voice/http turns, no-reply pill, and the thinking toggle.
-    check("convlog: card visible (conversations cap)",
-          pg.locator("#convlog-card:not(.hidden)").is_visible())
-    check("convlog: seeded turns rendered",
-          pg.locator("#convlog-list .conv-turn").count() >= 4)
-    check("convlog: voice + http origin badges",
-          pg.locator("#convlog-list .trace-origin.voice").count() >= 2 and
-          pg.locator("#convlog-list .trace-origin.chat").count() >= 2)
-    check("convlog: no-reply turn pill",
-          pg.locator("#convlog-list .conv-turn .state-pill.off").count() >= 1)
-    check("convlog: engine pill on replied turns",
-          pg.locator("#convlog-list .conv-turn .state-pill.on").count() >= 3)
-    check("convlog: heard text rendered",
-          "小蜜蜂" in pg.locator("#convlog-list .conv-user").first.inner_text())
-    pg.locator("#convlog-list .conv-thinking-toggle").first.click()
-    pg.wait_for_timeout(150)
-    check("convlog: thinking entries expand",
-          pg.locator("#convlog-list .conv-think-entry").count() >= 2)
-    check("convlog: thinking entry carries source+note",
-          pg.locator("#convlog-list .conv-think-src").first.inner_text() != "" and
-          pg.locator("#convlog-list .conv-think-note").first.inner_text() != "")
-    pg.locator("#convlog-list .conv-thinking-toggle").first.click()
-    pg.wait_for_timeout(150)
-    check("convlog: thinking collapses",
-          pg.locator("#convlog-list .conv-think-entry").count() == 0)
+    # Live thinking panel (§3.5 agent_step + §3.4 latest turn): dispatch
+    # a deterministic turn + step pair through the app's SSE handler seam
+    # and read the DOM in the SAME tick (the mock's periodic rotation can
+    # re-render the timeline at any moment otherwise).
+    check("think: card visible (conversations cap)",
+          pg.locator("#think-card:not(.hidden)").is_visible())
+    turn_counts = pg.evaluate("""async () => {
+      const m = await import('/js/sse.js');
+      m.dispatchTestEvent('conversation', {id: 9001, conversation_id:'t1', origin:'http',
+        started_ms: Date.now(), user_text:'今天天气怎么样',
+        thinking:[
+          {source:'llm', model:'qwen3-1.7b', note:'请求调用工具', duration_ms:410},
+          {source:'tool', model:'weather.current', note:'Sunny 31°C 湿度 62%', duration_ms:690},
+          {source:'llm', model:'qwen3-1.7b', note:'回填后应答', duration_ms:2010}],
+        reply_text:'今天晴，31 度。', engine:'local'});
+      const q = (s) => document.querySelectorAll(s).length;
+      return {steps: q('#think-turn .think-step'),
+              tools: q('#think-turn .think-step.tool'),
+              idle: q('#think-live.think-idle')};
+    }""")
+    check("think: latest turn timeline rendered",
+          turn_counts["steps"] >= 3, str(turn_counts))
+    check("think: tool step highlighted",
+          turn_counts["tools"] == 1, str(turn_counts))
+    check("think: live section cleared by finished turn",
+          turn_counts["idle"] == 1, str(turn_counts))
+    pg.evaluate("import('/js/sse.js').then((m) => m.dispatchTestEvent("
+                "'agent_step', {conversation_id:'t1', kind:'phase', state:'thinking'}))")
+    pg.wait_for_timeout(120)
+    check("think: phase thinking flips hero state",
+          "思考中" in pg.locator("#agent-state-label").inner_text() or
+          "Thinking" in pg.locator("#agent-state-label").inner_text())
+    step_counts = pg.evaluate("""async () => {
+      const m = await import('/js/sse.js');
+      m.dispatchTestEvent('agent_step', {conversation_id:'t1', kind:'tool', state:'running',
+        tool:'home.light', args:{room:'客厅', on:true}});
+      const q = (s) => document.querySelectorAll(s).length;
+      const running = q('#think-live .chat-tool.running');
+      const activity = document.getElementById('agent-activity').textContent;
+      m.dispatchTestEvent('agent_step', {conversation_id:'t1', kind:'tool', state:'done',
+        tool:'home.light', args:{room:'客厅', on:true}, result:'已开启', duration_ms:220});
+      return {running, activity,
+              still: q('#think-live .chat-tool.running'),
+              done: q('#think-live .chat-tool')};
+    }""")
+    check("think: live tool card appears (running)",
+          step_counts["running"] == 1, str(step_counts))
+    check("think: activity line names the tool",
+          "home.light" in step_counts["activity"], str(step_counts))
+    check("think: live tool card settles (done)",
+          step_counts["still"] == 0 and step_counts["done"] == 1, str(step_counts))
+    # Tools & skills card (SPEC §3.5): registry from GET /api/tools.
+    check("tools: card visible (tools cap)",
+          pg.locator("#tools-card:not(.hidden)").is_visible())
+    check("tools: registry rows rendered",
+          pg.locator("#tools-list .tool-row").count() >= 4)
+    check("tools: builtin source badge",
+          pg.locator("#tools-list .tool-row-source.builtin").count() >= 3)
+    check("tools: mcp source badge",
+          pg.locator("#tools-list .tool-row-source.mcp").count() >= 1)
+    check("tools: mcp row names its server",
+          "home" in pg.locator("#tools-list .tool-row-source.mcp").first.inner_text())
+    shot(pg, "15b-assistant-hero", full=False)
     # Clear-all with confirmation (SPEC §3.4 DELETE): cancel keeps rows,
-    # confirm empties the list.
-    pg.click("#convlog-clear")
+    # confirm empties the chat history (restored turns + local ones).
+    pg.click("#chat-clear")
     pg.wait_for_timeout(150)
-    check("convlog: clear confirm dialog shown",
+    check("chat: clear confirm dialog shown",
           pg.locator("#confirm-overlay").is_visible())
     pg.click("#confirm-cancel")
     pg.wait_for_timeout(150)
-    check("convlog: cancel keeps turns",
-          pg.locator("#convlog-list .conv-turn").count() >= 4)
-    pg.click("#convlog-clear")
+    check("chat: cancel keeps turns",
+          pg.locator("#chat-log .chat-row").count() >= 9)
+    pg.click("#chat-clear")
     pg.wait_for_timeout(150)
     pg.click("#confirm-ok")
     pg.wait_for_timeout(600)
-    check("convlog: confirm clears to empty state",
-          pg.locator("#convlog-list .conv-turn").count() == 0 and
-          pg.locator("#convlog-list .record-empty").count() == 1)
+    check("chat: confirm clears to empty state",
+          pg.locator("#chat-log .chat-row").count() == 0 and
+          pg.locator("#chat-log .chat-hints").count() == 1)
+    check("chat: thinking panel resets after clear",
+          pg.locator("#think-turn .think-step").count() == 0)
     shot(pg, "15c-chat-assistant", full=True)
 
     # ── Records view (SPEC appendix A #24): list + filter + clear ─────
@@ -699,6 +782,8 @@ with sync_playwright() as p:
     check("mobile: overlay sizing loop cannot grow the wrapper", growth == 0, f"grew {growth}px")
     mp.click("#nav-mobile .nav-tab[data-view=assistant]")
     mp.wait_for_timeout(1000)
+    check("mobile: voiceprint hero visible",
+          mp.locator("#agent-hero:not(.hidden)").is_visible())
     shot(mp, "31-mobile-assistant", full=True)
     mp.click("#nav-mobile .nav-tab[data-view=system]")
     mp.wait_for_timeout(1000)

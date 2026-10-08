@@ -98,7 +98,8 @@ CSRF 契约：所有 `POST/PUT/DELETE/PATCH` 到 `/api/*`（auth 族除外：log
   "config_apply": {"default": "restart", "sections": {"imaging": "immediate"}},
   "restart": true,
   "observability": {"metrics": true, "logs": true, "requests": true, "traces": false, "model_metrics": false},
-  "conversations": false
+  "conversations": false,
+  "tools": {"enabled": false, "count": 0}
 }
 ```
 
@@ -118,6 +119,7 @@ CSRF 契约：所有 `POST/PUT/DELETE/PATCH` 到 `/api/*`（auth 族除外：log
 - `observability`：可观测能力（§3.2）；缺省（字段或其内键不存在）视为 `false`，前端隐藏资源监控图与日志/请求视图。`traces`：对话级模型调用链追踪端点存在（§3.3）；`model_metrics`：`/metrics` 暴露每模型资源指标族（附录 A5 方言）。二者均为 v1 同版本加法（2026-10-04）。
 - `resource`：启动期功能资源门控快照（notebook 方言，附录 A #40）。对象含内存预算与逐功能准入表；键不存在视为无此能力（旧固件/其余方言），前端隐藏资源档位卡。v1 同版本加法（2026-10-04）。
 - `conversations`：对话交互记录端点存在（§3.4）——含 SSE `conversation` 事件的通告门控。缺省（键不存在）视为 `false`，前端隐藏对话记录卡。v1 同版本加法（2026-10-06）。
+- `tools`：工具/技能框架在位（§3.5，notebook 方言附录 A #43）。对象 `{"enabled": bool, "count": N}`——`count` = 内置 + MCP 服务器注册的工具总数（清单经 `GET /api/tools` 获取）；`enabled:false` 或键不存在视为无此能力，前端隐藏工具卡与工具调用展示（聊天气泡内 `tool_calls` 相应不会出现）。v1 同版本加法（2026-10-08）。
 
 ### 3.2 可观测（Extension：`observability`）
 
@@ -246,6 +248,21 @@ CSRF 契约：所有 `POST/PUT/DELETE/PATCH` 到 `/api/*`（auth 族除外：log
 - **存储**：设备持久存储（SQLite，FIFO 封顶由方言定义；附录 A #41）；写入失败只记日志，绝不影响对话管线（fail-open）。
 - **隐私**：记录含转写与回复原文，仅存设备本机、不外发；方言提供总开关（关闭后能力通告为 false、不记录）。
 - **实时**：一轮结束（voice 或 http）经 SSE `conversation` 事件（§6）推送该轮完整对象；通告门控 = `capabilities.conversations`。
+- **工具条目（2026-10-08 加法）**：`thinking` 数组可含 `source:"tool"` 的条目——`model` 为工具名（如 `weather.current`）、`note` 为工具结果摘要。由工具调用循环（§3.5）产生，形状与其余 thinking 条目一致，旧前端按未知来源渲染即可。
+
+### 3.5 工具与技能（Extension：`tools`，v1 同版本加法 2026-10-08，notebook 方言附录 A #43）
+
+对话助手的工具/技能（skill）框架：把设备能力与外部功能封装为模型可调用的工具，经 agent 循环在对话中按需执行（问天气 → 调 `weather.current` → 结果回填 → 生成回答）。
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/tools` | 工具清单 → `{"tools":[{"name","description","input_schema","source"}]}`；`source` = `"builtin"`（设备内置）或 `"mcp:<服务器名>"`（MCP stdio 子进程提供）。会话认证同 §2。 |
+
+语义：
+- **agent 循环**：`POST /api/chat`（附录 A #22）与语音自动应答在工具非空时经工具调用循环应答——模型输出工具调用（云端走 OpenAI 兼容 `tool_calls`，本地走 Qwen3 `<tool_call>` 格式）→ 设备执行 → 结果回填 → 模型生成最终回答。循环有步数上限（方言配置），超限强制收口；工具执行失败把错误文本如实回填（模型据此如实告知用户），不伪装成功。
+- **`/api/chat` 响应加法**：`"tool_calls":[{"name","args","ok","result","duration_ms"}]` ——本轮实际执行的工具序列（无则数组缺省或为空）。SSE `conversation` 记录的 `thinking` 里同轮出现 `source:"tool"` 条目（§3.4）。
+- **实时过程**：每个工具执行经 SSE `agent_step`（§6）推送 running → done/error 两态——前端工具卡与思考面板的实时数据源。
+- **信任边界**：工具由部署者在设备配置里显式注册（内置工具 + MCP 服务器子进程）；`GET /api/tools` 即"暴露给模型的工具清单"（MCP 规范的透明性要求）。MCP 服务器是部署者可控的本地子进程——不自动安装、不联网发现。
 
 ## 4. 相机资源（Core）
 
@@ -425,7 +442,8 @@ MSE 流细则：init segment（`ftyp`+`moov`）只发一次，随后每访问单
 | `model_task` | `{"task_id","capability","model_id","status","progress",…}` | 模型下载任务状态变化（§4.9，v1 同版本加法）：`status` ∈ downloading/verifying/done/failed/canceled，节流 ≥0.5s；通告门控 `model_manager` |
 | `audio_level` | `{"level":0..1,"timestamp"}` | 麦克风实时音量（v1 同版本加法 2026-10-03，方言附录 A #36；同日修订为感知映射）：**level 为感知刻度，不是线性 RMS**——窗口 RMS 按 dBFS 线性映射（−45…−5 dB → 0…1），门限（<−45 dB）以下恒为 0；≤10 Hz；通告门控 = 设备侧音频监听在运行（voice/audio_ai/meeting 任一活跃）——前端语音对话波形条的数据源 |
 | `alarm` | `{"camera_id","active","source","targets","timestamp"}` | 告警上升沿（v1 同版本加法）：与 GB28181 告警 NOTIFY 同源同门控（上升沿 + 冷却 + 运行时开关），在边缘被接受时即推送、与平台侧投递成败无关；`active` 恒为 `true`（上升沿事件），`source` 目前恒为 `"ai"`，`targets` 为触发目标数，`timestamp` epoch-ms。通告门控为 AI 启用（2026-09-20 起不再要求 GB28181 启用，见附录 A #18） |
-| `conversation` | `{"id","conversation_id","origin","user_text","thinking":[…],"reply_text","engine"}` | 一轮对话交互完成（v1 同版本加法 2026-10-06，§3.4）：单轮完整记录对象，含无回复轮（`reply_text:null`）；通告门控 `capabilities.conversations`（notebook 方言附录 A #41） |
+| `conversation` | `{"id","conversation_id","origin","user_text","thinking":[…],"reply_text","engine"}` | 一轮对话交互完成（v1 同版本加法 2026-10-06，§3.4）：单轮完整记录对象，含无回复轮（`reply_text:null`）；`thinking` 可含 `source:"tool"` 工具条目（§3.5）；通告门控 `capabilities.conversations`（notebook 方言附录 A #41） |
+| `agent_step` | `{"conversation_id","kind":"tool"\|"phase","state","tool"?,"args"?,"result"?,"duration_ms"?,"note"?}` | 对话 agent 过程步骤（v1 同版本加法 2026-10-08，§3.5）：`kind:"tool"` 为工具调用（`state:"running"\|"done"\|"error"`，完成态带 `result` 与 `duration_ms`）；`kind:"phase"` 为阶段切换（`state:"thinking"\|"answering"`）——前端助手状态行与实时思考面板数据源；通告门控 `capabilities.tools`（notebook 方言附录 A #43） |
 | `recording` | `{"camera_id","active"}` | 录像启停 |
 | `status` | `{"uptime",...}` | 周期状态摘要（可选） |
 
@@ -499,6 +517,7 @@ MSE 流细则：init segment（`ftyp`+`moov`）只发一次，随后每访问单
 40. **notebook 启动期功能资源门控（2026-10-04 起）**：小内存主机不整启全部 AI 功能——按启动时可用内存做预算制准入。配置节 `[resources]`（既有 `auto_tier` 为 LLM 模型选档，见 #30-E）新键：`feature_gate`（`"auto"` 缺省 = 启用门控；`"all"` = 显式全启，即旧行为）与 `reserve_mib`（缺省 512；预算 MiB = 启动时 MemAvailable − reserve——MemAvailable 本身已含可回收页缓存，reserve 只留 OS 抖动余量）。**决策算法（纯启动期）**：按固定优先级 `ai → audio_ai → voice → llm → tts → decision → face → ocr → meeting → vlm` 贪心准入；每功能成本 = 已配置模型文件的**实际字节数**之和 × 1.15（ORT 会话全驻留 / llama.cpp mmap 的近似）+ 每引擎固定开销（40–80 MiB）；累加超出预算即不准入该功能（其后更便宜的功能仍可尝试准入）；`meeting` 与 `decision` 依赖 `voice` 的模型（voice 不准入则二者一并不准入）。LLM 先按 #30-E 解析档位模型，成本按解析后的实际文件计。未获准入的功能按"配置关闭"构造引擎（fail-open 报 inactive），准入原因进 capabilities。模型文件缺失按成本 0 计（引擎自身的 fail-open 原因照常浮现）。**暴露**：`capabilities.resource` 对象 `{mode, available_mib, total_mib, budget_mib, reserve_mib, features:[{name, cost_mib, admitted, reason}]}`（§3.1 加法键；`reason` 为机器码——`""` 准入 / `"off_config"` 配置未启用 / `"off_budget"` 预算不足 / `"dependency"` 依赖功能未准入，前端据此本地化，未知码原样显示）；`/metrics` 新增 gauge `mibee_eye_resource_budget_mib` 与 `mibee_eye_feature_admitted{name}`（1=准入/0=未准予或未配置）——实时可用内存沿用 #38 既有资源 gauge。运行期不做驱逐：门控是启动期决策，重启按届时水位重算；改配置 `[resources]` 需重启生效（`config_apply` restart 节）。
 41. **notebook 对话交互记录（§3.4 实现，2026-10-06 起）**：`GET /api/conversations?limit=`（缺省 50 上限 200，倒序）+ `DELETE /api/conversations`（清空全部，2026-10-07 加法）+ SSE `conversation` 事件 + SQLite `conversation_turns` 表（FIFO 封顶 1000 行，插入时修剪，`hearing_records` 同法）。采集点：**语音轮**（120 s 会话槽，`conversation_id` 复用 §3.3 voice trace id）——ASR 转写为 `user_text`，意图决策（`decision`）、云端应答/失败回落（`cloud.chat`）、本地 LLM（`llm`，带 prompt/completion token 数）、TTS 播报（`tts.*`）各产一条 thinking 条目，决策判 `ignore` 的轮次照常落库（`reply_text:null`）；**HTTP 轮**——`POST /api/chat` 每请求一轮，云端看图/云端文本/本地 VLM/本地 LLM 各腿（含失败回落腿）均记 thinking，`conversation_id` = 该请求的 §3.3 chat trace id。`note` 截断 200 字符。配置 `[conversations] enabled`（缺省 `true`，隐私总开关——`false` 时不记录、不通告该能力）。写入失败仅告警（fail-open）。`capabilities.conversations` 通告（= `enabled`）。
 42. **notebook 桌面集成（托盘图标 + 桌面通知，2026-10-06 起）**：部署在有桌面会话的 Linux 上时的本机存在感，全部 fail-open。配置 `[desktop]`：`tray`（缺省 `true`）、`notifications`（缺省 `true`，告警桌面通知）、`notify_conversations`（缺省 `false`，语音回复完成时也发桌面通知，正文 = 回复截断）。**会话探测**：`DBUS_SESSION_BUS_ADDRESS` 已设或 `$XDG_RUNTIME_DIR/bus` 存在视为有桌面会话；无 → 托盘与通知整体静默跳过（INFO 一次，headless 服务器行为零变化）。**托盘**（StatusNotifierItem/kstatusnotifieritem，ksni 实现）：图标 + 状态标题，菜单「打开 Web 界面」以 `xdg-open` 打开本机管理 URL（`[web] http_port` 非零时 `http://127.0.0.1:{http_port}`，否则 `https://127.0.0.1:{port}`）；无托盘宿主（如无扩展的 GNOME）时安静等待，不报错。**通知**（org.freedesktop.Notifications）：视觉/声音/区域三类告警上升沿各自发一条（复用 §6 `alarm` 的三处扇出点，视觉 `检测到 N 个目标`、声音 `听到：{类别}`、区域 `区域事件：{zone}`）；发送失败（通知守护尚未就绪——服务可能先于用户登录启动）暂停该通道并于 10 分钟后自动重试，托盘注册失败亦每 60 秒重试直至成功——用户登录、桌面会话就位后二者自动生效，期间不刷日志。无新 API 面、无新 SSE 事件。
+43. **notebook 工具/技能插件框架（§3.5 实现，2026-10-08 起）**：对话 agent 的工具调用能力——把设备能力（天气/快照/时间）与**自定义外部工具**统一封装为模型可调用的 skill。配置 `[agent]`：`enabled`（缺省 `true`，工具注册表为空时循环自然退化为普通应答）、`max_steps`（3，工具调用循环轮数上限）、`step_timeout_ms`（15000，单次工具执行超时）；`[[agent.mcp_servers]]` 子表数组——每条 spawn 一个 **MCP（Model Context Protocol，spec 2025-06-18）stdio 子进程**：`name`（工具来源前缀显示）、`command`/`args`/`env`（子进程命令行）。**MCP 客户端**：initialize 握手（`clientInfo.name="mibee-eye"`）→ `tools/list`（cursor 翻页）缓存清单 → `tools/call` 执行；换行分帧 JSON-RPC、单调用超时、server→client 请求一律 -32601（不支持 sampling/roots）、`notifications/tools/list_changed` 触发清单重拉、进程死亡标记 degraded 下次调用重生、关停关 stdin。**内置工具**：`time.now`（本地时间+时区）、`weather.current`（复用 #30-A 的 wttr.in 拉取与 `weather_city` 配置）、`camera.snapshot`（最新帧时间戳，结果附 `media_url` 指向 §4.1 快照端点——前端工具卡渲染缩略图；v1 不做 VLM 看图回填）。**模型侧**：云端走 OpenAI 兼容 `tools`/`tool_calls`/`role:"tool"`（#35 引擎）；本地 Qwen3 走原生 `<tool_call>` 提示格式与 `<tool_response>` 回填（无 tools-aware 聊天模板可用，设备自构——`/no_think` 追加保证工具调用不落思考块）。**执行语义**：工具结果截断 8 KiB 再回填；工具失败以错误文本回填（模型如实告知）；本地输出解析不出工具标记 → 整段当普通回答（fail-open，存量行为零变化）；达 `max_steps` 仍要求调工具 → 末轮去掉工具表强制收口。**暴露**：`GET /api/tools`（§3.5）、capability `tools:{enabled,count}`、SSE `agent_step`（§6）、`/api/chat` 响应 `tool_calls` 数组、§3.4 记录 thinking 的 `source:"tool"` 条目。**信任边界**：MCP 服务器为部署者显式配置的本地子进程（不自动安装/不联网发现）；工具即"暴露给模型的代码面"，`GET /api/tools` 是透明清单；v1 无工具执行前人工确认 UI（后续可加白名单/确认门）。
 
 ## 8. 附录 B：本规范取代的旧端点（迁移对照）
 

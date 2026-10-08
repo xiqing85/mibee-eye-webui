@@ -161,6 +161,20 @@ STATE = {
     # heard/input text, internal "thinking" entries, AI reply + engine.
     # Kept newest-first like the real endpoint.
     "conversations": [
+        {"id": 5, "conversation_id": "c91af10bc005", "origin": "http",
+         "started_ms": 1759280102000,
+         "user_text": "今天天气怎么样",
+         "thinking": [
+             {"source": "llm", "model": "qwen3-1.7b",
+              "note": "请求调用工具 weather.current", "duration_ms": 410},
+             {"source": "tool", "model": "weather.current",
+              "note": "Guangzhou 当前天气：Sunny，气温 31°C（体感 34°C），湿度 62%，风速 12km/h",
+              "duration_ms": 730},
+             {"source": "llm", "model": "qwen3-1.7b",
+              "note": "工具结果回填后应答 · prompt 233 / completion 26 tok", "duration_ms": 1980},
+         ],
+         "reply_text": "今天广州晴天，气温 31 度，体感 34 度，有点热，注意补水。",
+         "engine": "local"},
         {"id": 4, "conversation_id": "c91af003c004", "origin": "voice",
          "started_ms": 1759280004000,
          "user_text": "小蜜蜂，帮我看着门口",
@@ -204,6 +218,25 @@ STATE = {
          "reply_text": "画面是一间客厅，沙发上有一个人。",
          "engine": "cloud"},
     ],
+
+    # Tool/skill registry (SPEC §3.5): built-ins plus one MCP-provided
+    # server so the tools card shows both source kinds.
+    "tools": [
+        {"name": "time.now", "description": "获取设备本地当前时间与时区",
+         "input_schema": {"type": "object", "properties": {}}, "source": "builtin"},
+        {"name": "weather.current", "description": "查询配置城市的当前天气（气温/体感/湿度/风）",
+         "input_schema": {"type": "object",
+                          "properties": {"city": {"type": "string", "description": "城市名（可省略，用设备配置）"}},
+                          }, "source": "builtin"},
+        {"name": "camera.snapshot", "description": "抓取相机当前画面快照（返回时间戳与查看地址）",
+         "input_schema": {"type": "object",
+                          "properties": {"camera_id": {"type": "string", "description": "相机 id，缺省 0"}},
+                          }, "source": "builtin"},
+        {"name": "home.light", "description": "控制家里灯具的开关（MCP 示例：home 服务器）",
+         "input_schema": {"type": "object",
+                          "properties": {"room": {"type": "string"}, "on": {"type": "boolean"}},
+                          "required": ["room", "on"]}, "source": "mcp:home"},
+    ],
 }
 
 CAPS = {
@@ -238,7 +271,7 @@ CAPS = {
     "substream": True,
     "webrtc": False,
     "events": ["camera_added", "camera_offlined", "param_changed", "ai_detection",
-               "ai_model_changed", "recording", "status", "alarm", "alarm_description", "voice_transcript", "chat_reply", "conversation", "zone_event", "voice_decision", "meeting_state", "model_task", "audio_level"],
+               "ai_model_changed", "recording", "status", "alarm", "alarm_description", "voice_transcript", "chat_reply", "conversation", "zone_event", "voice_decision", "meeting_state", "model_task", "audio_level", "agent_step"],
     "config_apply": {"default": "restart", "sections": {"imaging": "immediate",
                                                         # demonstrates the immediate badge on a real config section
                                                         "logging": "immediate",
@@ -250,6 +283,8 @@ CAPS = {
                       "traces": True, "model_metrics": True},
     # Conversation records (SPEC §3.4) — the human-readable dialogue log.
     "conversations": True,
+    # Tool/skill framework (SPEC §3.5) — registry snapshot.
+    "tools": {"enabled": True, "count": 4},
     # Boot-time feature admission snapshot (SPEC appendix A #40). Mock
     # mimics a small-memory host: VLM + meeting are shed by the budget.
     "resource": {
@@ -554,12 +589,65 @@ def ai_thread():
             sse_broadcast("alarm", {"camera_id": "0", "active": True, "source": "ai",
                                     "targets": 1, "timestamp": int(time.time() * 1000)})
         # Conversation turns (SPEC §3.4) — a fresh voice turn every 24s so
-        # the live SSE path stays observable.
-        if fn % 12 == 7:
-            turn = dict(STATE["conversations"][0])
+        # the live SSE path stays observable. Rotates through samples that
+        # exercise the chat renderer: a tool-calling turn, a plain turn,
+        # and a no-reply turn.
+        if fn % 12 == 7 and STATE["conversations"]:
+            samples = [
+                {"conversation_id": "c91af10bc005", "origin": "voice",
+                 "user_text": "小蜜蜂，今天天气怎么样",
+                 "thinking": [
+                     {"source": "decision", "model": "laya",
+                      "note": "意图=answer（置信度 0.92）", "duration_ms": 40},
+                     {"source": "tool", "model": "weather.current",
+                      "note": "Guangzhou 当前天气：Sunny，气温 31°C，湿度 62%，风速 12km/h",
+                      "duration_ms": 690},
+                     {"source": "llm", "model": "qwen3-1.7b",
+                      "note": "工具结果回填后应答 · prompt 233 / completion 26 tok", "duration_ms": 2010},
+                     {"source": "tts.zh", "model": "vits", "note": "已播报（普通话）", "duration_ms": 3100},
+                 ],
+                 "reply_text": "今天广州晴天，气温 31 度，体感 34 度，注意补水。",
+                 "engine": "local"},
+                {"conversation_id": "c91af10bc005", "origin": "voice",
+                 "user_text": "小蜜蜂，帮我看着门口",
+                 "thinking": [
+                     {"source": "decision", "model": "laya",
+                      "note": "意图=answer（置信度 0.91）", "duration_ms": 38},
+                     {"source": "llm", "model": "qwen3-1.7b",
+                      "note": "本地应答 · prompt 196 / completion 21 tok", "duration_ms": 2210},
+                     {"source": "tts.zh", "model": "vits", "note": "已播报（普通话）", "duration_ms": 3400},
+                 ],
+                 "reply_text": "好的，我会持续关注门口画面，有人出现会立刻提醒你。",
+                 "engine": "local"},
+                {"conversation_id": "c91af10bc005", "origin": "voice",
+                 "user_text": "（电视声）",
+                 "thinking": [
+                     {"source": "decision", "model": "laya",
+                      "note": "意图=ignore（置信度 0.88）→ 不回复", "duration_ms": 35},
+                 ],
+                 "reply_text": None, "engine": None},
+            ]
+            turn = dict(samples[(fn // 12) % len(samples)])
             turn["id"] = 1000 + fn
             turn["started_ms"] = int(time.time() * 1000)
             sse_broadcast("conversation", turn)
+        # Agent steps (SPEC §6 agent_step) — a tool call lifecycle every
+        # 36s: phase thinking → tool running → done → phase answering, so
+        # the live thinking panel and hero state line stay observable.
+        if fn % 18 == 5:
+            cid = "c91af10bc005"
+            sse_broadcast("agent_step", {"conversation_id": cid, "kind": "phase",
+                                         "state": "thinking"})
+            sse_broadcast("agent_step", {"conversation_id": cid, "kind": "tool",
+                                         "state": "running", "tool": "weather.current",
+                                         "args": {"city": "Guangzhou"}})
+            sse_broadcast("agent_step", {"conversation_id": cid, "kind": "tool",
+                                         "state": "done", "tool": "weather.current",
+                                         "args": {"city": "Guangzhou"},
+                                         "result": "Sunny 31°C（体感 34°C）湿度 62%",
+                                         "duration_ms": 730})
+            sse_broadcast("agent_step", {"conversation_id": cid, "kind": "phase",
+                                         "state": "answering", "note": "llm"})
         # Mic level (SPEC §6 audio_level) — burst pattern: 4s speech-like
         # pulses then 2s silence, so the waveform visibly dances and floors.
         if fn % 3 != 0:
@@ -1028,6 +1116,9 @@ class Handler(BaseHTTPRequestHandler):
             except ValueError:
                 limit = 50
             return self.ok({"conversations": STATE["conversations"][:limit]})
+        if path == "/api/tools":
+            # Tool/skill registry (SPEC §3.5).
+            return self.ok({"tools": STATE["tools"]})
         self.send_error(404)
 
     # ── API: POST ───────────────────────────────────────────────────
@@ -1045,7 +1136,16 @@ class Handler(BaseHTTPRequestHandler):
             vision = bool(body.get("vision"))
             grounded = "vlm" if vision else "scene"
             engine = "cloud" if STATE["cloud"]["provider"] != "off" and STATE["cloud"]["api_key"] else "local"
-            return self.ok({"reply": f"[mock:{grounded}] 收到：{text}", "grounded": grounded, "engine": engine})
+            resp = {"reply": f"[mock:{grounded}] 收到：{text}", "grounded": grounded, "engine": engine}
+            # SPEC §3.5 tool_calls additive field: weather-phrased questions
+            # demonstrate the agent loop in the mock.
+            if any(k in text.lower() for k in ("天气", "气温", "几度", "weather")):
+                resp["reply"] = "今天广州晴天，气温 31 度，体感 34 度，有点热，注意补水。"
+                resp["tool_calls"] = [
+                    {"name": "weather.current", "args": {"city": "Guangzhou"}, "ok": True,
+                     "result": "Sunny 31°C（体感 34°C）湿度 62%", "duration_ms": 730},
+                ]
+            return self.ok(resp)
         if path == "/api/cloud/test":
             c = STATE["cloud"]
             if c["provider"] == "off" or not c["api_key"]:
