@@ -195,6 +195,17 @@ with sync_playwright() as p:
           pg.locator('[id="cf-scene.voice.wake_word"]').count() == 1)
     check("settings: scene weather city labelled",
           '天气查询城市' in pg.locator('label[for="cf-scene.tools.weather_city"]').inner_text())
+    # Away feature knobs (SPEC appendix A #44 amendment) — web-configurable
+    # scene.away.* keys render with zh labels.
+    check("settings: scene away voice_control toggle",
+          pg.locator('[id="cf-scene.away.voice_control"]').count() == 1)
+    check("settings: scene away push_url input labelled",
+          '推送 Webhook' in pg.locator('label[for="cf-scene.away.push_url"]').inner_text())
+    check("settings: scene away schedule fields",
+          pg.locator('[id="cf-scene.away.schedule_arm"]').count() == 1
+          and pg.locator('[id="cf-scene.away.schedule_disarm"]').count() == 1
+          and pg.locator('[id="cf-scene.away.deterrence"]').count() == 1
+          and pg.locator('[id="cf-scene.away.audio_link"]').count() == 1)
     pg.fill('[id="cf-scene.voice.follow_up_window_secs"]', '-1')
     pg.wait_for_timeout(400)
     check("settings: negative scene window flagged",
@@ -545,6 +556,14 @@ with sync_playwright() as p:
     pg.wait_for_timeout(600)
     check("away: disarmed again after second toggle",
           not pg.locator("#away-status.armed").count())
+    # Disarm-with-events summary toast (SPEC §3.6 additive field) —
+    # re-arm, then disarm: mock returns a summary when rows exist.
+    pg.click("#away-toggle")
+    pg.wait_for_timeout(600)
+    pg.click("#away-toggle")
+    pg.wait_for_timeout(600)
+    check("away: disarm summary toast shown",
+          pg.locator(".toast .toast-msg", has_text="离家期间共记录").count() >= 1)
     # Clear-all goes through the danger confirm; cancel keeps the rows.
     pg.click("#away-clear")
     pg.wait_for_timeout(300)

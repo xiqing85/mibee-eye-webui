@@ -58,7 +58,14 @@ STATE = {
         "scene": {"voice": {"follow_up_window_secs": 12.0,
                             "wake_word": "小蜜蜂"},
                   "tools": {"weather_enabled": True, "weather_city": "Guangzhou",
-                            "weather_timeout_secs": 5}},
+                            "weather_timeout_secs": 5},
+                  "away": {"voice_control": True, "summary_on_disarm": True,
+                           "deterrence": False,
+                           "deterrence_text": "请注意：您的影像和声音已被记录，主人将收到通知。",
+                           "reask_text": "请问你是谁？请说明来意。",
+                           "schedule_arm": "", "schedule_disarm": "",
+                           "schedule_weekdays_only": False, "push_url": "",
+                           "audio_link": True}},
         "watermark": {"enabled": False, "text": "", "show_timestamp": True,
                       "timestamp_format": "%Y-%m-%d %H:%M:%S", "position": "top-left",
                       "font_size": 24, "font_path": ""},
@@ -1234,11 +1241,17 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/away":
             active = bool(body.get("active"))
             st = STATE["away"]
+            had_events = (not active) and st["active"] and bool(STATE["away_events"])
             st["active"] = active
             st["since_ms"] = int(time.time() * 1000) if active else None
             sse_broadcast("away_state", {"active": active, "since_ms": st["since_ms"]})
-            return self.ok({"applied": "immediate", "active": active,
-                            "since_ms": st["since_ms"]})
+            resp = {"applied": "immediate", "active": active,
+                    "since_ms": st["since_ms"]}
+            if had_events:
+                visitors = len([e for e in STATE["away_events"] if e["kind"] == "person"])
+                resp["summary"] = (f"[mock] 离家期间共记录 {len(STATE['away_events'])} 条事件，"
+                                   f"其中访客 {visitors} 次。")
+            return self.ok(resp)
         if path == "/api/cloud/test":
             c = STATE["cloud"]
             if c["provider"] == "off" or not c["api_key"]:
