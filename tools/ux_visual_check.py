@@ -513,6 +513,55 @@ with sync_playwright() as p:
           pg.locator("#records-list .record-kind.kind-speaker").count() == 1 and
           pg.locator("#records-list .kind-speaker").inner_text().strip() == "mickey")
 
+    # ── Away mode card (SPEC §3.6, capability away) ──────────────────
+    check("away: card visible (away cap)",
+          pg.locator("#away-card:not(.hidden)").count() == 1)
+    check("away: disarmed status text",
+          "未布防" in pg.locator("#away-status").inner_text() and
+          not pg.locator("#away-status.armed").count())
+    check("away: seeded event rows rendered",
+          pg.locator("#away-list .away-row").count() == 3)
+    check("away: visitor vs activity kind badges",
+          pg.locator("#away-list .record-kind.kind-voice").count() == 2 and
+          pg.locator("#away-list .record-kind.kind-sound").count() == 1)
+    check("away: known-face badge on enrolled visitor",
+          pg.locator("#away-list .kind-speaker").inner_text().strip() == "小明")
+    check("away: answered state badge localized",
+          pg.locator("#away-list .away-state.away-state-answered").count() == 1 and
+          pg.locator("#away-list .away-state.away-state-answered").inner_text().strip() == "已应答")
+    check("away: visitor reply rendered",
+          "取个包裹" in pg.locator("#away-list .away-reply").first.inner_text())
+    thumb_ok = pg.evaluate(
+        "() => Array.from(document.querySelectorAll('#away-list .away-thumb'))"
+        ".every(i => i.complete && i.naturalWidth > 0)")
+    check("away: snapshot thumbnails loaded", thumb_ok)
+    # Arm → POST flips the status badge + button label (mock away_state SSE).
+    pg.click("#away-toggle")
+    pg.wait_for_timeout(600)
+    check("away: armed after toggle",
+          pg.locator("#away-status.armed").count() == 1 and
+          pg.locator("#away-toggle").inner_text().strip() == "撤防")
+    pg.click("#away-toggle")
+    pg.wait_for_timeout(600)
+    check("away: disarmed again after second toggle",
+          not pg.locator("#away-status.armed").count())
+    # Clear-all goes through the danger confirm; cancel keeps the rows.
+    pg.click("#away-clear")
+    pg.wait_for_timeout(300)
+    check("away: clear confirm dialog shown",
+          pg.locator("#confirm-overlay").is_visible())
+    pg.click("#confirm-cancel")
+    pg.wait_for_timeout(300)
+    check("away: cancel keeps records",
+          pg.locator("#away-list .away-row").count() == 3)
+    pg.click("#away-clear")
+    pg.wait_for_timeout(300)
+    pg.click("#confirm-ok")
+    pg.wait_for_timeout(600)
+    check("away: confirm clears records",
+          pg.locator("#away-list .away-row").count() == 0 and
+          pg.locator("#away-list .record-empty").count() == 1)
+
     # ── AI models page (SPEC §4.9/§4.10, model_manager + cloud_ai) ──
     check("models: tab visible", pg.locator("#nav .nav-tab[data-view=models]").is_visible())
     pg.click("#nav .nav-tab[data-view=models]")

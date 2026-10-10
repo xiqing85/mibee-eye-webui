@@ -237,6 +237,28 @@ STATE = {
                           "properties": {"room": {"type": "string"}, "on": {"type": "boolean"}},
                           "required": ["room", "on"]}, "source": "mcp:home"},
     ],
+
+    # Away mode (SPEC §3.6): armed state + event records, newest first.
+    "away": {"active": False, "since_ms": None, "voice": True,
+             "stats": {"events": 3, "visitors": 2}},
+    "away_events": [
+        {"id": 3, "camera_id": "0", "kind": "person",
+         "started_ms": 1759281000000, "labels": "person×1",
+         "face_name": None,
+         "description": "画面里有一名穿深色上衣的男子站在桌旁，正看向摄像头。",
+         "visitor_reply": "我是你主人的朋友，来取个包裹",
+         "snapshot": "1759281000000-0.jpg", "state": "answered"},
+        {"id": 2, "camera_id": "0", "kind": "person",
+         "started_ms": 1759280600000, "labels": "person×1",
+         "face_name": "小明",
+         "description": "小明背着书包走进画面，向摄像头挥手。",
+         "visitor_reply": None,
+         "snapshot": "1759280600000-0.jpg", "state": "known"},
+        {"id": 1, "camera_id": "0", "kind": "activity",
+         "started_ms": 1759280200000, "labels": "cat×1",
+         "face_name": None, "description": None, "visitor_reply": None,
+         "snapshot": "1759280200000-0.jpg", "state": "recorded"},
+    ],
 }
 
 CAPS = {
@@ -271,7 +293,7 @@ CAPS = {
     "substream": True,
     "webrtc": False,
     "events": ["camera_added", "camera_offlined", "param_changed", "ai_detection",
-               "ai_model_changed", "recording", "status", "alarm", "alarm_description", "voice_transcript", "chat_reply", "conversation", "zone_event", "voice_decision", "meeting_state", "model_task", "audio_level", "agent_step"],
+               "ai_model_changed", "recording", "status", "alarm", "alarm_description", "voice_transcript", "chat_reply", "conversation", "zone_event", "voice_decision", "meeting_state", "model_task", "audio_level", "agent_step", "away_event", "away_state"],
     "config_apply": {"default": "restart", "sections": {"imaging": "immediate",
                                                         # demonstrates the immediate badge on a real config section
                                                         "logging": "immediate",
@@ -285,6 +307,8 @@ CAPS = {
     "conversations": True,
     # Tool/skill framework (SPEC §3.5) — registry snapshot.
     "tools": {"enabled": True, "count": 4},
+    # Away mode (SPEC §3.6) — armable watch surface.
+    "away": {"available": True, "voice": True},
     # Boot-time feature admission snapshot (SPEC appendix A #40). Mock
     # mimics a small-memory host: VLM + meeting are shed by the budget.
     "resource": {
@@ -648,6 +672,18 @@ def ai_thread():
                                          "duration_ms": 730})
             sse_broadcast("agent_step", {"conversation_id": cid, "kind": "phase",
                                          "state": "answering", "note": "llm"})
+        # Away mode (SPEC §6 away_event): while armed, a visitor event
+        # lifecycle every ~40s — created listening, then answered with the
+        # spoken reply, exercising the upsert-by-id path.
+        if fn % 20 == 11 and STATE["away"]["active"]:
+            ev = {"id": 2000 + fn, "camera_id": "0", "kind": "person",
+                  "started_ms": int(time.time() * 1000), "labels": "person×1",
+                  "face_name": None, "description": None, "visitor_reply": None,
+                  "snapshot": "live-%d.jpg" % fn, "state": "listening"}
+            sse_broadcast("away_event", dict(ev))
+            ev["visitor_reply"] = "我是快递员，把包裹放门口了"
+            ev["state"] = "answered"
+            sse_broadcast("away_event", dict(ev))
         # Mic level (SPEC §6 audio_level) — burst pattern: 4s speech-like
         # pulses then 2s silence, so the waveform visibly dances and floors.
         if fn % 3 != 0:
@@ -923,6 +959,11 @@ class Handler(BaseHTTPRequestHandler):
             removed = len(STATE["conversations"])
             STATE["conversations"] = []
             return self.ok({"applied": "immediate", "removed": removed})
+        # Away mode records (SPEC §3.6): clear all.
+        if path == "/api/away/events":
+            removed = len(STATE["away_events"])
+            STATE["away_events"] = []
+            return self.ok({"applied": "immediate", "removed": removed})
         if path.startswith("/api/faces/"):
             name = path.rsplit("/", 1)[1]
             st = STATE["faces"]
@@ -1119,6 +1160,49 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/tools":
             # Tool/skill registry (SPEC §3.5).
             return self.ok({"tools": STATE["tools"]})
+        if path == "/api/away":
+            # Away mode (SPEC §3.6): armed state.
+            st = dict(STATE["away"])
+            st["stats"] = {"events": len(STATE["away_events"]),
+                           "visitors": len([e for e in STATE["away_events"] if e["kind"] == "person"])}
+            return self.ok(st)
+        if path == "/api/away/events":
+            from urllib.parse import parse_qs, urlparse
+            q = parse_qs(urlparse(self.path).query)
+            try:
+                limit = min(max(int((q.get("limit") or ["50"])[0]), 1), 200)
+            except ValueError:
+                limit = 50
+            return self.ok({"events": STATE["away_events"][:limit]})
+        if path.startswith("/api/away/events/") and path.endswith("/snapshot"):
+            try:
+                ev_id = int(path.split("/")[-2])
+            except ValueError:
+                return self.err("bad_request", "bad id", 400)
+            ev = next((e for e in STATE["away_events"] if e["id"] == ev_id), None)
+            if not ev:
+                return self.err("not_found", "no such event", 404)
+            # 1×1 gray JPEG — enough for the thumbnail <img> to load.
+            jpeg = bytes.fromhex(
+                "ffd8ffe000104a46494600010100000100010000ffdb004300"
+                "080606070605080707070909080a0c140d0c0b0b0c1912130f14"
+                "1d1a1f1e1d1a1c1c20242e2720222c231c1c2837292c30313434"
+                "341f27393d38323c2e333432ffc0000b080001000101011100"
+                "ffc4001f00000105010101010101000000000000000001020304"
+                "05060708090a0bffc400b5100002010303020403050504040000"
+                "017d01020300041105122131410613516107227114328191a108"
+                "2342b1c11552d1f02433627282090a161718191a25262728292a"
+                "3435363738393a434445464748494a535455565758595a636465"
+                "666768696a737475767778797a838485868788898a9293949596"
+                "9798999aa2a3a4a5a6a7a8a9aab2b3b4b5b6b7b8b9bac2c3c4c5"
+                "c6c7c8c9cad2d3d4d5d6d7d8d9dae1e2e3e4e5e6e7e8e9eaf1"
+                "f2f3f4f5f6f7f8f9faffda0008010100003f00fca8ffd9")
+            self.send_response(200)
+            self.send_header("Content-Type", "image/jpeg")
+            self.send_header("Content-Length", str(len(jpeg)))
+            self.end_headers()
+            self.wfile.write(jpeg)
+            return
         self.send_error(404)
 
     # ── API: POST ───────────────────────────────────────────────────
@@ -1146,6 +1230,15 @@ class Handler(BaseHTTPRequestHandler):
                      "result": "Sunny 31°C（体感 34°C）湿度 62%", "duration_ms": 730},
                 ]
             return self.ok(resp)
+        # Away mode (SPEC §3.6): arm/disarm, broadcast away_state.
+        if path == "/api/away":
+            active = bool(body.get("active"))
+            st = STATE["away"]
+            st["active"] = active
+            st["since_ms"] = int(time.time() * 1000) if active else None
+            sse_broadcast("away_state", {"active": active, "since_ms": st["since_ms"]})
+            return self.ok({"applied": "immediate", "active": active,
+                            "since_ms": st["since_ms"]})
         if path == "/api/cloud/test":
             c = STATE["cloud"]
             if c["provider"] == "off" or not c["api_key"]:
