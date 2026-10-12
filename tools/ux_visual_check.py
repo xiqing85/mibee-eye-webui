@@ -375,6 +375,8 @@ with sync_playwright() as p:
           pg.locator("#chat-log .chat-badge.voice").count() >= 1)
     check("chat: no-reply turn pill",
           pg.locator("#chat-log .state-pill.off").count() >= 1)
+    check("chat: interrupted turn badge (SPEC §3.4)",
+          pg.evaluate("(() => { const badges = [...document.querySelectorAll('#chat-log .chat-badge')]; return badges.some(b => b.textContent === '已打断' || b.textContent === 'Interrupted'); })"))
     check("chat: engine tag on replies",
           pg.locator("#chat-log .chat-engine").count() >= 3)
     check("chat: tool card from thinking entries",

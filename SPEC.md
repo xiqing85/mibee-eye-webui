@@ -237,6 +237,24 @@ CSRF 契约：所有 `POST/PUT/DELETE/PATCH` 到 `/api/*`（auth 族除外：log
       ],
       "reply_text": "今天广州晴，最高 31 度。",
       "engine": "local"
+    },
+    {
+      "id": 41,
+      "conversation_id": "c18f0a2c0001",
+      "origin": "voice",
+      "started_ms": 1788319950000,
+      "user_text": "介绍一下你自己，多说几句",
+      "thinking": [
+        {"source": "decision", "model": "laya",
+         "note": "意图=answer（置信度 0.71）", "duration_ms": 96},
+        {"source": "llm", "model": "qwen3-4b",
+         "note": "本地应答（流水线，被用户打断） · prompt 222 / completion 21 tok", "duration_ms": 12400},
+        {"source": "tts", "model": "vits",
+         "note": "已播报 · 1 句（流水线，被用户打断）", "duration_ms": 5200}
+      ],
+      "reply_text": "你好，我是小蜜蜂。",
+      "engine": "local",
+      "interrupted": true
     }
   ]
 }
@@ -247,6 +265,7 @@ CSRF 契约：所有 `POST/PUT/DELETE/PATCH` 到 `/api/*`（auth 族除外：log
 - **user_text**：用户输入原文（语音轮 = ASR 转写文本）。**无回复轮也记录**：决策判为 `ignore`（噪声/误唤醒）的语音轮 `reply_text`/`engine` 为 `null`，`thinking` 里保留决策结论条目——诚实呈现"这轮为什么没有回答"。
 - **thinking**：内部调用人读摘要（**非逐字 prompt**），每条对应一次内部模型调用或路由决策。`source` 与 §3.3 span 的 `model` 同名空间（`decision`/`cloud.chat`/`cloud.vision`/`vlm`/`llm`/`tts.*` 等）；`note` 为设备生成的人读摘要（token 数、置信度、失败原因与回落路径等），截断于 200 字符；`duration_ms` 恒有。引擎回落的失败腿保留为独立条目（如上例 cloud 失败 + llm 兜底）——资源消耗的转移在记录中同样可见。
 - **reply_text / engine**：AI 最终回复文本与实际引擎（`"cloud"`|`"local"`|`"vlm"`）；无回复轮两者为 `null`。
+- **interrupted（2026-10-12 加法，可选）**：布尔，仅当该轮被用户插话打断时出现且为 `true`——`reply_text` 为**实际播报出去的前缀**（可能短于模型完整生成，也可能为 `null`：一句未播完就被打断）；`thinking` 条目的 note 会标注"被用户打断"。旧前端按未知字段忽略即可（方言门控，notebook 附录 A #45）。
 - **存储**：设备持久存储（SQLite，FIFO 封顶由方言定义；附录 A #41）；写入失败只记日志，绝不影响对话管线（fail-open）。
 - **隐私**：记录含转写与回复原文，仅存设备本机、不外发；方言提供总开关（关闭后能力通告为 false、不记录）。
 - **实时**：一轮结束（voice 或 http）经 SSE `conversation` 事件（§6）推送该轮完整对象；通告门控 = `capabilities.conversations`。
@@ -483,7 +502,7 @@ MSE 流细则：init segment（`ftyp`+`moov`）只发一次，随后每访问单
 | `model_task` | `{"task_id","capability","model_id","status","progress",…}` | 模型下载任务状态变化（§4.9，v1 同版本加法）：`status` ∈ downloading/verifying/done/failed/canceled，节流 ≥0.5s；通告门控 `model_manager` |
 | `audio_level` | `{"level":0..1,"timestamp"}` | 麦克风实时音量（v1 同版本加法 2026-10-03，方言附录 A #36；同日修订为感知映射）：**level 为感知刻度，不是线性 RMS**——窗口 RMS 按 dBFS 线性映射（−45…−5 dB → 0…1），门限（<−45 dB）以下恒为 0；≤10 Hz；通告门控 = 设备侧音频监听在运行（voice/audio_ai/meeting 任一活跃）——前端语音对话波形条的数据源 |
 | `alarm` | `{"camera_id","active","source","targets","timestamp"}` | 告警上升沿（v1 同版本加法）：与 GB28181 告警 NOTIFY 同源同门控（上升沿 + 冷却 + 运行时开关），在边缘被接受时即推送、与平台侧投递成败无关；`active` 恒为 `true`（上升沿事件），`source` 目前恒为 `"ai"`，`targets` 为触发目标数，`timestamp` epoch-ms。通告门控为 AI 启用（2026-09-20 起不再要求 GB28181 启用，见附录 A #18） |
-| `conversation` | `{"id","conversation_id","origin","user_text","thinking":[…],"reply_text","engine"}` | 一轮对话交互完成（v1 同版本加法 2026-10-06，§3.4）：单轮完整记录对象，含无回复轮（`reply_text:null`）；`thinking` 可含 `source:"tool"` 工具条目（§3.5）；通告门控 `capabilities.conversations`（notebook 方言附录 A #41） |
+| `conversation` | `{"id","conversation_id","origin","user_text","thinking":[…],"reply_text","engine"}` | 一轮对话交互完成（v1 同版本加法 2026-10-06，§3.4）：单轮完整记录对象，含无回复轮（`reply_text:null`）；`thinking` 可含 `source:"tool"` 工具条目（§3.5）；被用户打断的轮含可选 `interrupted:true`（2026-10-12 加法，§3.4）；通告门控 `capabilities.conversations`（notebook 方言附录 A #41） |
 | `agent_step` | `{"conversation_id","kind":"tool"\|"phase","state","tool"?,"args"?,"result"?,"duration_ms"?,"note"?}` | 对话 agent 过程步骤（v1 同版本加法 2026-10-08，§3.5）：`kind:"tool"` 为工具调用（`state:"running"\|"done"\|"error"`，完成态带 `result` 与 `duration_ms`）；`kind:"phase"` 为阶段切换（`state:"thinking"\|"answering"`）——前端助手状态行与实时思考面板数据源；通告门控 `capabilities.tools`（notebook 方言附录 A #43） |
 | `away_event` | `{"id","camera_id","kind":"person"\|"activity","started_ms","labels","face_name"?,"description"?,"visitor_reply"?,"snapshot"?,"state"}` | 离家模式事件（v1 同版本加法 2026-10-10，§3.6）：创建与每次状态迁移（VLM 描述补齐/访客回答/超时静默）各推一次同一 `id` 的事件对象，前端按 `id` 就地更新；通告门控 `capabilities.away`（notebook 方言附录 A #44） |
 | `away_state` | `{"active","since_ms"?}` | 离家模式布防/撤防（v1 同版本加法 2026-10-10，§3.6）：任一客户端布防/撤防即广播，其余标签页据此同步；通告门控同上 |
@@ -562,6 +581,8 @@ MSE 流细则：init segment（`ftyp`+`moov`）只发一次，随后每访问单
 42. **notebook 桌面集成（托盘图标 + 桌面通知，2026-10-06 起）**：部署在有桌面会话的 Linux 上时的本机存在感，全部 fail-open。配置 `[desktop]`：`tray`（缺省 `true`）、`notifications`（缺省 `true`，告警桌面通知）、`notify_conversations`（缺省 `false`，语音回复完成时也发桌面通知，正文 = 回复截断）。**会话探测**：`DBUS_SESSION_BUS_ADDRESS` 已设或 `$XDG_RUNTIME_DIR/bus` 存在视为有桌面会话；无 → 托盘与通知整体静默跳过（INFO 一次，headless 服务器行为零变化）。**托盘**（StatusNotifierItem/kstatusnotifieritem，ksni 实现）：图标 + 状态标题，菜单「打开 Web 界面」以 `xdg-open` 打开本机管理 URL（`[web] http_port` 非零时 `http://127.0.0.1:{http_port}`，否则 `https://127.0.0.1:{port}`）；无托盘宿主（如无扩展的 GNOME）时安静等待，不报错。**通知**（org.freedesktop.Notifications）：视觉/声音/区域三类告警上升沿各自发一条（复用 §6 `alarm` 的三处扇出点，视觉 `检测到 N 个目标`、声音 `听到：{类别}`、区域 `区域事件：{zone}`）；发送失败（通知守护尚未就绪——服务可能先于用户登录启动）暂停该通道并于 10 分钟后自动重试，托盘注册失败亦每 60 秒重试直至成功——用户登录、桌面会话就位后二者自动生效，期间不刷日志。无新 API 面、无新 SSE 事件。
 43. **notebook 工具/技能插件框架（§3.5 实现，2026-10-08 起）**：对话 agent 的工具调用能力——把设备能力（天气/快照/时间）与**自定义外部工具**统一封装为模型可调用的 skill。配置 `[agent]`：`enabled`（缺省 `true`，工具注册表为空时循环自然退化为普通应答）、`max_steps`（3，工具调用循环轮数上限）、`step_timeout_ms`（15000，单次工具执行超时）；`[[agent.mcp_servers]]` 子表数组——每条 spawn 一个 **MCP（Model Context Protocol，spec 2025-06-18）stdio 子进程**：`name`（工具来源前缀显示）、`command`/`args`/`env`（子进程命令行）。**MCP 客户端**：initialize 握手（`clientInfo.name="mibee-eye"`）→ `tools/list`（cursor 翻页）缓存清单 → `tools/call` 执行；换行分帧 JSON-RPC、单调用超时、server→client 请求一律 -32601（不支持 sampling/roots）、`notifications/tools/list_changed` 触发清单重拉、进程死亡标记 degraded 下次调用重生、关停关 stdin。**内置工具**：`time.now`（本地时间+时区）、`weather.current`（复用 #30-A 的 wttr.in 拉取与 `weather_city` 配置）、`camera.snapshot`（最新帧时间戳，结果附 `media_url` 指向 §4.1 快照端点——前端工具卡渲染缩略图；v1 不做 VLM 看图回填）。**模型侧**：云端走 OpenAI 兼容 `tools`/`tool_calls`/`role:"tool"`（#35 引擎）；本地 Qwen3 走原生 `<tool_call>` 提示格式与 `<tool_response>` 回填（无 tools-aware 聊天模板可用，设备自构——`/no_think` 追加保证工具调用不落思考块）。**执行语义**：工具结果截断 8 KiB 再回填；工具失败以错误文本回填（模型如实告知）；本地输出解析不出工具标记 → 整段当普通回答（fail-open，存量行为零变化）；达 `max_steps` 仍要求调工具 → 末轮去掉工具表强制收口。**暴露**：`GET /api/tools`（§3.5）、capability `tools:{enabled,count}`、SSE `agent_step`（§6）、`/api/chat` 响应 `tool_calls` 数组、§3.4 记录 thinking 的 `source:"tool"` 条目。**信任边界**：MCP 服务器为部署者显式配置的本地子进程（不自动安装/不联网发现）；工具即"暴露给模型的代码面"，`GET /api/tools` 是透明清单；v1 无工具执行前人工确认 UI（后续可加白名单/确认门）。**语音快路径（2026-10-10 加法）**：`[agent] voice_tool_gate`（缺省 `true`）——语音轮仅在话术命中工具意图启发式（天气/时间/画面/设备控制三语词表）时才携带工具表；prefill 在 CPU 上约 28ms/token，闲聊不该为 ~700 个工具提示 token 多等 ~20 秒。HTTP 文本轮恒携带全量工具表。Qwen3 `<tools>` 段同步紧凑化（单行 JSON + 精简指令，省约一半 prefill token），语义不变。
 44. **notebook 离家模式（§3.6 实现，2026-10-10 起；同日六项能力修订——全部 `scene.away.*` 热配置）**：**修订内容**：① **语音布防/撤防**（`voice_control`，缺省 true）——语音桥在决策/LLM 之前内建意图识别（关键词启发式，短句 ≤8 字 + 排除疑问句："我要出门了/上班去了"→布防、"我回来了/到家了"→撤防），应答"已布防/已撤防"并 TTS 播报，走 §3.4 记录（`thinking source:"away.command"`）；② **撤防摘要**（`summary_on_disarm`，缺省 true）——撤防时统计布防窗口内事件（本地 LLM 活跃则生成一句话摘要，回落纯统计文案），`POST /api/away` 撤防响应 `summary` 字段 + 语音撤防时播报；③ **威慑二问**（`deterrence`，缺省 false；`reask_text`/`deterrence_text` 话术可配）——陌生人 `listening` 超时→`reask` 态二次追问（半窗）→仍静默→`silent` + 播威慑话术；④ **定时布防**（`schedule_arm`/`schedule_disarm`，"HH:MM" 本地时间，空=该沿关闭；`schedule_weekdays_only`，缺省 false）——调度任务仅在边界分钟动作，窗口内手动布/撤防不被对抗（已布防不重复布防、已撤防不重复撤防）；⑤ **访客推送**（`push_url`，缺省空=零外发）——访客事件触发一次 JSON POST（`{device,event_id,title,body,timestamp_ms}`，纯文本不含图像，5s 超时 fail-open）；配置 URL 即知情选择外发（默认保持完全离线）；⑥ **声音告警联动**（`audio_link`，缺省 true）——布防期间投票声音上升沿按活动冷却落一条 `kind:"activity"` 记录（labels = `🔊 类别 置信度`，无快照）。**基础实现**：主人不在家时的值守。`POST /api/away` 布防后，设备在**既有 AI 检测事件流**（§4.6 NanoDet，含触发现场 JPEG）上挂离家消费者，不另建采样管线；节拍 = `[ai] interval_ms`（缺省 1000ms）再叠 `[away] interval_ms`（缺省 1000，离家侧最小分析间隔）。**人员事件**：每相机人员出现上升沿——`person_gap_secs`（缺省 10；人员消失不足此值视为同一次在场）、`greeting_cooldown_secs`（缺省 120；冷却内的再触发整条丢弃不排队）。触发后：存现场快照（`[away] snapshot_dir`，缺省 `away-snapshots/`，cwd 相对）→ 落 `away_events` 行（SQLite，FIFO 封顶 1000；修剪与清空同步删快照文件）→ 桌面通知（复用 #42 通道）→ 人脸比对（#33 档案；命中 → `greeting_known`（缺省「欢迎回家，{name}。」）按名问候、`state:"known"` 不询问；未命中 → `greeting_unknown`（缺省「你好，这里是主人的智能看家助手。主人现在不在家，请问你是谁？」）+ 询问）→ TTS 播报（复用自哑期防自唤醒）→ **免唤醒监听窗** `[away] listen_secs`（缺省 10；`VoiceEngine::arm_listen` 一次性窗口——不动 `follow_up_window_secs` 配置值；VAD 实例改为随 `vad_model` 常备，窗口长度 0 不再导致无法监听）→ 窗内首个 follow-up 转写记入 `visitor_reply`（`state:"answered"`），窗尽无语音 → `state:"silent"`；语音/TTS 不可用或监听槽被占（单麦克风设备级唯一）→ `state:"no_voice"`。**访客后续对话不拦截**：监听窗内的转写照常进入既有语音桥（决策 → agent/LLM → TTS），设备可与访客对话，§3.4 记录照常。**VLM 描述**：人员事件异步 `describe_jpeg`（离家侧单飞不排队；引擎互斥天然串行），完成更新同记录并重推 `away_event`；VLM 不可用则 `description` 恒 null（事件照记）。**活动事件**：`[away] activity_labels`（缺省 `["cat","dog","bird"]`）内标签上升沿记一条（`activity_cooldown_secs` 缺省 60；`kind:"activity"`、`state:"recorded"`、存快照），人员在场时不重复记活动。**暴露**：capability `away:{available,voice}`（available = AI 检测活跃；voice = TTS+voice 引擎活跃）、SSE `away_event`/`away_state`、§3.6 五个端点（快照端点按事件 id 取行内文件名拼 `snapshot_dir` 下路径，不接受客户端路径）。**布防持久化**：settings 袋 `away.active`，重启恢复布防。**诚实边界**：AI 检测不可用即不可布防（capability false，POST 400 附原因）；相机流停止时无事件（诚实沉默）；离家值守只覆盖视觉——声音告警走既有 `alarm` 管线，与布防无关。
+
+45. **notebook 语音打断与思考期免唤醒（§3.4 `interrupted` 加法来源，2026-10-12 起）**：本地应答轮进入"思考"（LLM 生成）阶段时，麦克风保持**免唤醒监听**（复用跟问窗 VAD 机制，窗口随轮次存活；说完直接说，无需唤醒词）。思考期收到新转写时按三级策略处置：① **停词规则**（不进模型，0ms）——`停/别说了/闭嘴/不用说了/算了/stop/收声` 及其粤语/英语变体 → 取消当前轮（生成在下一 token 停止、句子播放队列停止），该轮按 §3.4 `interrupted:true` 落库（`reply_text` = 实际播出的句子前缀，可能为 `null`）；② **Laya 二分类**（`interrupt_confidence` 缺省 0.6 以下 fail-open）——`supersede`（新问题）→ 取消旧轮、立即答新问；`backchannel`（嗯/好/哦等附和）→ 忽略，旧轮继续；③ **保守失败方向**：Laya 不可用/低置信 → 按附和忽略（宁可漏打断不误打断）。配置 `[voice] interrupt_enable`（缺省 `true`，false 时思考期不监听、行为回到 P0 语义——已开轮次完整走完）。单轮互斥：同一时刻至多一个活动应答轮（既有并发竞态就此消灭）；打断时对话历史的 assistant 轮 = **实际播报前缀**而非模型全文。**边界**：播报（TTS 出声）期间麦克风仍自哑（防自言自语循环）——播报期打断属后续方言（声纹门/AEC）；本方言只覆盖思考期。
 
 ## 8. 附录 B：本规范取代的旧端点（迁移对照）
 
