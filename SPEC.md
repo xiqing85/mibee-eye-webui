@@ -76,6 +76,7 @@ CSRF 契约：所有 `POST/PUT/DELETE/PATCH` 到 `/api/*`（auth 族除外：log
   "spec_version": "1",
   "device": {"name": "...", "model": "...", "vendor": "..."},
   "auth": {"model": "session", "setup": true},
+  "build": {"version": "…", "sha": "…", "dirty": false},
   "multi_camera": false,
   "camera_management": false,
   "camera_control": false,
@@ -105,6 +106,7 @@ CSRF 契约：所有 `POST/PUT/DELETE/PATCH` 到 `/api/*`（auth 族除外：log
 ```
 
 字段语义：
+- `build`：构建溯源（同版本加法）。`version` = 产品版本；`sha` = 编译期嵌入的短 git 哈希（git 不可达的导出源码树诚实回退 `"unknown"`）；`dirty` = 是否含未提交改动。用于部署校验"运行二进制 == 期望提交"，前端可忽略。
 - `multi_camera`：相机数 > 1（前端显示相机列表/网格视图）。
 - `camera_management`：支持相机 CRUD（§4.2）。
 - `camera_control`：支持 start/stop（§4.3）。
