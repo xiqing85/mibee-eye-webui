@@ -55,6 +55,10 @@ STATE = {
                     "position_longitude": "", "position_latitude": "",
                     "talkback_playback": True, "talkback_upstream": False},
         "logging": {"level": "info"},
+        # Resource gate (SPEC appendix A #40, notebook dialect) — the
+        # settings editor renders the boot-tier select from this section.
+        "resources": {"tier": "auto", "auto_tier": True,
+                      "feature_gate": "auto", "reserve_mib": 768},
         "scene": {"voice": {"follow_up_window_secs": 12.0,
                             "wake_word": "小蜜蜂"},
                   "tools": {"weather_enabled": True, "weather_city": "Guangzhou",
@@ -320,6 +324,12 @@ CAPS = {
     # mimics a small-memory host: VLM + meeting are shed by the budget.
     "resource": {
         "mode": "auto",
+        # Named boot tier (#40 named-tier addendum): 2 cores /
+        # baseline SIMD / 3.7 GiB host resolves to basic — the
+        # conversation loop survives, the descriptive family is
+        # outside the preset (off_tier, budget-free).
+        "tier": "basic", "preset_source": "hardware",
+        "profile": {"physical_cores": 2, "simd": "baseline", "battery": False},
         "available_mib": 2364, "total_mib": 3816,
         "budget_mib": 1596, "reserve_mib": 768,
         "features": [
@@ -330,9 +340,9 @@ CAPS = {
             {"name": "tts", "cost_mib": 292, "admitted": False, "reason": "off_budget"},
             {"name": "decision", "cost_mib": 168, "admitted": False, "reason": "dependency"},
             {"name": "face", "cost_mib": 84, "admitted": False, "reason": "off_config"},
-            {"name": "ocr", "cost_mib": 64, "admitted": True, "reason": ""},
-            {"name": "meeting", "cost_mib": 68, "admitted": False, "reason": "dependency"},
-            {"name": "vlm", "cost_mib": 1210, "admitted": False, "reason": "off_budget"},
+            {"name": "ocr", "cost_mib": 64, "admitted": False, "reason": "off_tier"},
+            {"name": "meeting", "cost_mib": 68, "admitted": False, "reason": "off_tier"},
+            {"name": "vlm", "cost_mib": 1210, "admitted": False, "reason": "off_tier"},
         ],
     },
 }

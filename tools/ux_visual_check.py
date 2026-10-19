@@ -206,6 +206,16 @@ with sync_playwright() as p:
           and pg.locator('[id="cf-scene.away.schedule_disarm"]').count() == 1
           and pg.locator('[id="cf-scene.away.deterrence"]').count() == 1
           and pg.locator('[id="cf-scene.away.audio_link"]').count() == 1)
+    # Boot-tier select (SPEC appendix A #40 named tier): the resources
+    # section renders as a 5-option dropdown whose value round-trips the
+    # canonical string, labelled in zh with the restart hint.
+    check("settings: resources tier select present",
+          pg.locator('[id="cf-resources.tier"]').count() == 1
+          and pg.locator('[id="cf-resources.tier"] option').count() == 5)
+    check("settings: resources tier labelled", '启动档位' in
+          pg.locator('label[for="cf-resources.tier"]').inner_text())
+    check("settings: tier select value canonical",
+          pg.locator('[id="cf-resources.tier"]').input_value() == "auto")
     pg.fill('[id="cf-scene.voice.follow_up_window_secs"]', '-1')
     pg.wait_for_timeout(400)
     check("settings: negative scene window flagged",
@@ -733,11 +743,16 @@ with sync_playwright() as p:
           pg.evaluate("fetch('/metrics').then(r => r.status)") == 200)
     shot(pg, "16b-status-observability", full=True)
 
-    # ── Resource profile (SPEC appendix A #40; mock: 10 features, 5 off) ──
+    # ── Resource profile (SPEC appendix A #40; mock: 10 features, 6 off, tier=basic) ──
     check("res: profile card visible", pg.locator("#resource-card").is_visible())
     check("res: all 10 feature rows", pg.locator("#resource-card .res-row").count() == 10)
     check("res: every off row carries a reason",
-          pg.locator("#resource-card .res-row-off .res-reason").count() == 5)
+          pg.locator("#resource-card .res-row-off .res-reason").count() == 6)
+    check("res: tier badge shows the resolved name",
+          "basic" in (pg.text_content("#resource-card .res-tier") or ""))
+    check("res: off-tier rows show the preset reason",
+          "不在档位预设内" in "|".join(
+              pg.locator("#resource-card .res-reason").all_inner_texts()))
     check("res: budget summary rendered",
           "MiB" in (pg.text_content("#resource-card .res-summary") or ""))
     check("res: mode badge present", pg.locator("#resource-card .res-mode").count() == 1)
