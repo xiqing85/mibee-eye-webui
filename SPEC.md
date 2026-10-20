@@ -101,11 +101,13 @@ CSRF 契约：所有 `POST/PUT/DELETE/PATCH` 到 `/api/*`（auth 族除外：log
   "observability": {"metrics": true, "logs": true, "requests": true, "traces": false, "model_metrics": false},
   "conversations": false,
   "tools": {"enabled": false, "count": 0},
-  "away": {"available": false, "voice": false}
+  "away": {"available": false, "voice": false},
+  "telemetry": {"audio": false}
 }
 ```
 
 字段语义：
+- `telemetry`：音频遥测面（2026-10-20 加法，方言附录 A #46）。`audio` = 设备在推送 §6 `audio_level` 事件（voice/audio_ai/meeting 任一活跃即 true）。
 - `build`：构建溯源（同版本加法）。`version` = 产品版本；`sha` = 编译期嵌入的短 git 哈希（git 不可达的导出源码树诚实回退 `"unknown"`）；`dirty` = 是否含未提交改动。用于部署校验"运行二进制 == 期望提交"，前端可忽略。
 - `multi_camera`：相机数 > 1（前端显示相机列表/网格视图）。
 - `camera_management`：支持相机 CRUD（§4.2）。
@@ -502,7 +504,7 @@ MSE 流细则：init segment（`ftyp`+`moov`）只发一次，随后每访问单
 | `ai_detection` | `{"camera_id","detections":[{"label","confidence","bbox"}],"frame_number"?}` | AI 推理帧；bbox 坐标系同 §4.6（视频像素空间） |
 | `ai_model_changed` | `{"camera_id","model"}` | 模型热切换完成（§4.6 activate 端点）；`model` 为新模型 id |
 | `model_task` | `{"task_id","capability","model_id","status","progress",…}` | 模型下载任务状态变化（§4.9，v1 同版本加法）：`status` ∈ downloading/verifying/done/failed/canceled，节流 ≥0.5s；通告门控 `model_manager` |
-| `audio_level` | `{"level":0..1,"timestamp"}` | 麦克风实时音量（v1 同版本加法 2026-10-03，方言附录 A #36；同日修订为感知映射）：**level 为感知刻度，不是线性 RMS**——窗口 RMS 按 dBFS 线性映射（−45…−5 dB → 0…1），门限（<−45 dB）以下恒为 0；≤10 Hz；通告门控 = 设备侧音频监听在运行（voice/audio_ai/meeting 任一活跃）——前端语音对话波形条的数据源 |
+| `audio_level` | `{"level":0..1,"timestamp","capture_mode","source"}` | 麦克风实时音量（v1 同版本加法 2026-10-03，方言附录 A #36；同日修订为感知映射；**2026-10-20 音频遥测加法**：`capture_mode`/`source` 两字段，方言附录 A #46）：**level 为感知刻度，不是线性 RMS**——窗口 RMS 按 dBFS 线性映射（−45…−5 dB → 0…1），门限（<−45 dB）以下恒为 0；≤10 Hz；通告门控 = 设备侧音频监听在运行（voice/audio_ai/meeting 任一活跃）——前端语音对话波形条的数据源。**`capture_mode`**：`"passive"`（环境声——系统未将该音频用作功能依据）| `"active"`（功能采集窗内：唤醒窗/跟问窗/布防询问窗/对讲/转写会话——纯状态机自动判定，无手动开关）。**`source`**：`"self"`（TTS 播放自哑期间，即设备自己的声音）| `"speaker:<name>"`（最近登记声纹命中，事件后 4 s TTL）| `"others"`（窗内有人声但未登记/未命中）| `"ambient"`（无近期人声）。旧前端忽略新字段无感（加法键）。 |
 | `alarm` | `{"camera_id","active","source","targets","timestamp"}` | 告警上升沿（v1 同版本加法）：与 GB28181 告警 NOTIFY 同源同门控（上升沿 + 冷却 + 运行时开关），在边缘被接受时即推送、与平台侧投递成败无关；`active` 恒为 `true`（上升沿事件），`source` 目前恒为 `"ai"`，`targets` 为触发目标数，`timestamp` epoch-ms。通告门控为 AI 启用（2026-09-20 起不再要求 GB28181 启用，见附录 A #18） |
 | `conversation` | `{"id","conversation_id","origin","user_text","thinking":[…],"reply_text","engine"}` | 一轮对话交互完成（v1 同版本加法 2026-10-06，§3.4）：单轮完整记录对象，含无回复轮（`reply_text:null`）；`thinking` 可含 `source:"tool"` 工具条目（§3.5）；被用户打断的轮含可选 `interrupted:true`（2026-10-12 加法，§3.4）；通告门控 `capabilities.conversations`（notebook 方言附录 A #41） |
 | `agent_step` | `{"conversation_id","kind":"tool"\|"phase","state","tool"?,"args"?,"result"?,"duration_ms"?,"note"?}` | 对话 agent 过程步骤（v1 同版本加法 2026-10-08，§3.5）：`kind:"tool"` 为工具调用（`state:"running"\|"done"\|"error"`，完成态带 `result` 与 `duration_ms`）；`kind:"phase"` 为阶段切换（`state:"thinking"\|"answering"`）——前端助手状态行与实时思考面板数据源；通告门控 `capabilities.tools`（notebook 方言附录 A #43） |
@@ -589,7 +591,8 @@ MSE 流细则：init segment（`ftyp`+`moov`）只发一次，随后每访问单
 
 45. **notebook 语音打断与思考期免唤醒（§3.4 `interrupted` 加法来源，2026-10-12 起）**：本地应答轮进入"思考"（LLM 生成）阶段时，麦克风保持**免唤醒监听**（复用跟问窗 VAD 机制，窗口随轮次存活；说完直接说，无需唤醒词）。思考期收到新转写时按三级策略处置：① **停词规则**（不进模型，0ms）——`停/别说了/闭嘴/不用说了/算了/stop/收声` 及其粤语/英语变体 → 取消当前轮（生成在下一 token 停止、句子播放队列停止），该轮按 §3.4 `interrupted:true` 落库（`reply_text` = 实际播出的句子前缀，可能为 `null`）；② **Laya 二分类**（`interrupt_confidence` 缺省 0.6 以下 fail-open）——`supersede`（新问题）→ 取消旧轮、立即答新问；`backchannel`（嗯/好/哦等附和）→ 忽略，旧轮继续；③ **保守失败方向**：Laya 不可用/低置信 → 按附和忽略（宁可漏打断不误打断）。配置 `[voice] interrupt_enable`（缺省 `true`，false 时思考期不监听、行为回到 P0 语义——已开轮次完整走完）与 `[voice] barge_in`（缺省 `"off"`；`"aec"` 开启播报期打断，见下）。单轮互斥：同一时刻至多一个活动应答轮（既有并发竞态就此消灭）；打断时对话历史的 assistant 轮 = **实际播报前缀**而非模型全文。**边界（2026-10-12 晚修订：播报期打断经 AEC 落地）**：`[voice] barge_in`（缺省 `"off"`，恢复全哑行为）置 `"aec"` 时，播报期间的自哑**只哑 KWS 不哑 VAD**——唤醒词不会在自身 TTS 里自触发（自言自语循环防线保留），但 VAD 段照常进入 #45 打断门（播报中说"停"或新问题即打断）。**主机前置**（方言注明，非产品代码职责）：以 webrtc AEC 建立回声消除采集源并设为默认（如 `pactl load-module module-echo-cancel aec_method=webrtc use_master_sink=true use_master_capture=true` + `pactl set-default-source echo-cancel-source`），且**采集源增益必须 ≤100%**——>100% 的非线性劣化使线性 AEC 失效（实测 1.30 增益下抑制仅 1-2dB，1.00 下安静段 ~20dB）。响段峰值仅 ~6dB 抑制（扬声器非线性残差），大音量播报中插话的 ASR 识别率受物理限制。
 
-## 8. 附录 B：本规范取代的旧端点（迁移对照）
+
+46. **notebook 音频遥测面（§6 `audio_level` 加法字段 `capture_mode`/`source` + §3.1 `telemetry.audio` 能力键，2026-10-20 起）**：声纹波纹统一需求的数据面。设备在既有电平抽头上追加**采集上下文打标**（纯状态机自动判定，无手动开关）：`capture_mode="active"` 当且仅当处于功能采集窗（唤醒窗/跟问窗/布防询问窗/对讲/转写会话——全部经 voice 引擎的共享监听截止位判定）；其余一律 `"passive"`（环境声、杂音、yamnet 监听）。`source`：`"self"` = TTS 播放自哑期间（设备自己的声音，自言自语防线的可视化）；`"speaker:<name>"` = 最近一次登记声纹命中（经 voice 事件观察者，事件后 4 s TTL——实时按人聚类属二期）；`"others"` = 窗内有人声但未登记/未命中（TTL 同上）；`"ambient"` = 无近期人声。判定优先级：self-mute > speaker > others > ambient。同一标签流供下游功能拆解：VAD/ASR 只取 active 人声段、自声过滤、人声上升沿告警、会议按人归因（产品侧逐项接线）。前端共享波纹组件按 capture_mode/source 区分视觉：被动=暗色低饱和、主动=高亮包络、自声=独立色道、分人=多道多色+名字标签。**隐私注记沿用 #36**：仍是幅度摘要 + 上下文标签，永不含音频数据；source 的 speaker 名仅使用已登记声纹的名字（用户自己录入的）。## 8. 附录 B：本规范取代的旧端点（迁移对照）
 
 | 旧端点（项目） | 新端点 |
 |----------------|--------|
