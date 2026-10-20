@@ -780,6 +780,43 @@ with sync_playwright() as p:
           "MiB" in (pg.text_content("#resource-card .res-summary") or ""))
     check("res: mode badge present", pg.locator("#resource-card .res-mode").count() == 1)
 
+    # ── Elastic scaling decisions (SPEC appendix A #48) — deterministic
+    # via the sse test seam: existence checks are scoped by distinguishing
+    # content (the mock also broadcasts scale events every ~44s, so
+    # absolute counts/first-row reads would race). ─────────────────────
+    check("res: scale list element present", pg.locator("#res-scale").count() == 1)
+    pg.evaluate("window.sse.dispatchTestEvent('scale', "
+                "{action:'tier_down', from:'full', to:'lite', "
+                "reason:'memory_low', timestamp: Date.now()})")
+    pg.wait_for_timeout(200)
+    row = pg.locator("#res-scale .res-scale-row.tier_down", has_text="full → lite")
+    check("res: tier_down decision rendered", row.count() == 1)
+    check("res: scale row shows the localized action",
+          "档位下调" in (row.first.text_content() or ""))
+    check("res: scale row shows the reason",
+          "内存低水位" in (row.first.text_content() or ""))
+    check("res: scale row shows a clock time",
+          ":" in (row.first.locator(".res-scale-time").text_content() or ""))
+    pg.evaluate("window.sse.dispatchTestEvent('scale', "
+                "{action:'tier_up', from:'lite', to:'full', "
+                "reason:'memory_recovered', timestamp: Date.now()})")
+    pg.wait_for_timeout(200)
+    order = pg.evaluate(
+        "() => Array.from(document.querySelectorAll('#res-scale .res-scale-row'))"
+        ".map((r) => r.textContent)")
+    up = next((i for i, txt in enumerate(order) if "lite → full" in txt), -1)
+    down = next((i for i, txt in enumerate(order) if "full → lite" in txt), -1)
+    check("res: scale list is newest-first", up != -1 and down != -1 and up < down)
+    pg.evaluate("window.sse.dispatchTestEvent('scale', "
+                "{action:'recommend_minimal_form', from:'', to:'', "
+                "reason:'memory_critical', timestamp: Date.now()})")
+    pg.wait_for_timeout(200)
+    check("res: advice action renders without a move",
+          pg.locator("#res-scale .res-scale-row.recommend_minimal_form").count() >= 1
+          and pg.locator("#res-scale .res-scale-row.recommend_minimal_form "
+                         ".res-scale-move").count() == 0)
+    shot(pg, "16c-status-scale", full=True)
+
     # ── System ▸ Devices ───────────────────────────────────────────────
     pg.click("#system-subnav .subnav-btn[data-subview=devices]")
     pg.wait_for_timeout(1200)
