@@ -373,6 +373,29 @@ with sync_playwright() as p:
             break
         wf_before = wf_now
     check("hero: voiceprint canvas animates", wf_animates)
+    # Capture-context tag (SPEC appendix A #46): injected samples flip the
+    # tag through the semantic lanes — passive, active others, named
+    # speaker, device self.
+    import json as _json
+    def _inject(mode, source):
+        pg.evaluate("([m, s]) => window.sse.dispatchTestEvent('audio_level', "
+                    "{level: 0.5, timestamp: Date.now(), capture_mode: m, source: s})",
+                    [mode, source])
+        pg.wait_for_timeout(120)
+    tag = pg.locator("#agent-capture")
+    _inject("passive", "ambient")
+    def _cls():
+        return tag.evaluate("el => el.className")
+    _inject("passive", "ambient")
+    check("hero: passive capture tag shows",
+          tag.is_visible() and "active" not in _cls())
+    _inject("active", "others")
+    check("hero: active capture tag highlighted", "active" in _cls())
+    _inject("active", "speaker:alice")
+    check("hero: named speaker tag shows the enrolled name",
+          tag.inner_text().strip().endswith("alice"))
+    _inject("passive", "self")
+    check("hero: self channel has its own color class", "self" in _cls())
     # Restored dialogue history (SPEC §3.4): seeded turns render as
     # WeChat-style rows with avatars, engine pills, a no-reply turn, and
     # the tool-calling turn's chat-tool card.
