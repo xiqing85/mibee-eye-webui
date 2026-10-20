@@ -304,7 +304,7 @@ CAPS = {
     "substream": True,
     "webrtc": False,
     "events": ["camera_added", "camera_offlined", "param_changed", "ai_detection",
-               "ai_model_changed", "recording", "status", "alarm", "alarm_description", "voice_transcript", "chat_reply", "conversation", "zone_event", "voice_decision", "meeting_state", "model_task", "audio_level", "agent_step", "away_event", "away_state"],
+               "ai_model_changed", "recording", "status", "alarm", "alarm_description", "voice_transcript", "chat_reply", "conversation", "zone_event", "voice_decision", "meeting_state", "model_task", "audio_level", "agent_step", "away_event", "away_state", "scale"],
     "config_apply": {"default": "restart", "sections": {"imaging": "immediate",
                                                         # demonstrates the immediate badge on a real config section
                                                         "logging": "immediate",
@@ -708,6 +708,23 @@ def ai_thread():
             level = 0.25 + 0.6 * abs(_m.sin(fn * 1.7))
             sse_broadcast("audio_level", {"level": round(level, 3),
                                           "timestamp": int(time.time() * 1000)})
+        # Elasticity decisions (SPEC §6 scale) — one decision every ~44s,
+        # cycling the four action shapes so the resource card's live list
+        # stays observable.
+        if fn % 22 == 9:
+            samples = [
+                {"action": "tier_down", "from": "full", "to": "mid",
+                 "reason": "memory_low"},
+                {"action": "tier_up", "from": "mid", "to": "full",
+                 "reason": "memory_recovered"},
+                {"action": "battery_pin", "from": "full", "to": "lite",
+                 "reason": "battery_powered"},
+                {"action": "recommend_minimal_form", "from": "", "to": "",
+                 "reason": "memory_critical"},
+            ]
+            ev = dict(samples[(fn // 22) % len(samples)])
+            ev["timestamp"] = int(time.time() * 1000)
+            sse_broadcast("scale", ev)
 
 
 class Handler(BaseHTTPRequestHandler):
