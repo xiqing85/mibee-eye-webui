@@ -102,12 +102,14 @@ CSRF 契约：所有 `POST/PUT/DELETE/PATCH` 到 `/api/*`（auth 族除外：log
   "conversations": false,
   "tools": {"enabled": false, "count": 0},
   "away": {"available": false, "voice": false},
-  "telemetry": {"audio": false}
+  "telemetry": {"audio": false},
+  "plugins": {"enabled": false, "count": 0}
 }
 ```
 
 字段语义：
 - `telemetry`：音频遥测面（2026-10-20 加法，方言附录 A #46）。`audio` = 设备在推送 §6 `audio_level` 事件（voice/audio_ai/meeting 任一活跃即 true）。
+- `plugins`：插件框架（2026-10-20 加法，方言附录 A #47）。`enabled` = 任一 `[plugin.<id>]` 清单加载且触发引擎在跑；`count` = 已加载清单数。
 - `build`：构建溯源（同版本加法）。`version` = 产品版本；`sha` = 编译期嵌入的短 git 哈希（git 不可达的导出源码树诚实回退 `"unknown"`）；`dirty` = 是否含未提交改动。用于部署校验"运行二进制 == 期望提交"，前端可忽略。
 - `multi_camera`：相机数 > 1（前端显示相机列表/网格视图）。
 - `camera_management`：支持相机 CRUD（§4.2）。
@@ -504,6 +506,7 @@ MSE 流细则：init segment（`ftyp`+`moov`）只发一次，随后每访问单
 | `ai_detection` | `{"camera_id","detections":[{"label","confidence","bbox"}],"frame_number"?}` | AI 推理帧；bbox 坐标系同 §4.6（视频像素空间） |
 | `ai_model_changed` | `{"camera_id","model"}` | 模型热切换完成（§4.6 activate 端点）；`model` 为新模型 id |
 | `model_task` | `{"task_id","capability","model_id","status","progress",…}` | 模型下载任务状态变化（§4.9，v1 同版本加法）：`status` ∈ downloading/verifying/done/failed/canceled，节流 ≥0.5s；通告门控 `model_manager` |
+| `plugin_invocation` | `{"plugin","rule","action","outcome","timestamp"}` | 插件触发器执行透明度事件（方言附录 A #47）：一条触发规则的一次动作执行——`outcome` = `"ok"` \| `"error:<message>"` \| `"skipped:<reason>"`（权限不符/冷却中/工具不可用）。fail-open：插件失败绝不影响触发源本身。 |
 | `audio_level` | `{"level":0..1,"timestamp","capture_mode","source"}` | 麦克风实时音量（v1 同版本加法 2026-10-03，方言附录 A #36；同日修订为感知映射；**2026-10-20 音频遥测加法**：`capture_mode`/`source` 两字段，方言附录 A #46）：**level 为感知刻度，不是线性 RMS**——窗口 RMS 按 dBFS 线性映射（−45…−5 dB → 0…1），门限（<−45 dB）以下恒为 0；≤10 Hz；通告门控 = 设备侧音频监听在运行（voice/audio_ai/meeting 任一活跃）——前端语音对话波形条的数据源。**`capture_mode`**：`"passive"`（环境声——系统未将该音频用作功能依据）| `"active"`（功能采集窗内：唤醒窗/跟问窗/布防询问窗/对讲/转写会话——纯状态机自动判定，无手动开关）。**`source`**：`"self"`（TTS 播放自哑期间，即设备自己的声音）| `"speaker:<name>"`（最近登记声纹命中，事件后 4 s TTL）| `"others"`（窗内有人声但未登记/未命中）| `"ambient"`（无近期人声）。旧前端忽略新字段无感（加法键）。 |
 | `alarm` | `{"camera_id","active","source","targets","timestamp"}` | 告警上升沿（v1 同版本加法）：与 GB28181 告警 NOTIFY 同源同门控（上升沿 + 冷却 + 运行时开关），在边缘被接受时即推送、与平台侧投递成败无关；`active` 恒为 `true`（上升沿事件），`source` 目前恒为 `"ai"`，`targets` 为触发目标数，`timestamp` epoch-ms。通告门控为 AI 启用（2026-09-20 起不再要求 GB28181 启用，见附录 A #18） |
 | `conversation` | `{"id","conversation_id","origin","user_text","thinking":[…],"reply_text","engine"}` | 一轮对话交互完成（v1 同版本加法 2026-10-06，§3.4）：单轮完整记录对象，含无回复轮（`reply_text:null`）；`thinking` 可含 `source:"tool"` 工具条目（§3.5）；被用户打断的轮含可选 `interrupted:true`（2026-10-12 加法，§3.4）；通告门控 `capabilities.conversations`（notebook 方言附录 A #41） |
@@ -608,3 +611,18 @@ MSE 流细则：init segment（`ftyp`+`moov`）只发一次，随后每访问单
 | `GET /api/stream`（rs MJPEG）、`/api/cameras/{id}/live`（notebook） | `GET /api/cameras/{id}/live` |
 | `GET /api/capture`、`/snapshot.jpg`（rs） | `GET /api/cameras/{id}/snapshot` |
 | `GET/POST /api/record`（rs） | `GET/POST /api/cameras/{id}/recording` |
+
+47. **notebook 插件框架（§6 `plugin_invocation` + §3.1 `plugins` 能力键，2026-10-20 起）**：插件 = 清单 + 工具 + 触发规则，`[plugin.<id>]` TOML 声明：
+```toml
+[plugin.lamp-link]
+version = 1
+tools    = ["mcp:home"]          # 声明使用的工具源（信息性，MCP 注册表为准）
+triggers = [
+  { on = "away_state", when = "armed", cooldown_secs = 60, run = [
+    { tool = "lamp.switch", args = { room = "客厅", on = true } } ] }
+]
+[plugin.lamp-link.permissions]
+events = ["away_state"]           # 最小事件集——规则源不在白名单内即 skipped
+egress  = []                      # 外发白名单（知情原则，沿用 #44 push_url）
+```
+触发器事件源首发四个：`alarm`（`when` 匹配 source=ai/audio/zone 之一，空=任意）/ `away_state`（`when` = `"armed"`|`"disarmed"`，空=两者）/ `schedule` / `audio_level`——**schedule 与 audio_level 源声明于清单语法、执行接线随后续切片**（未接线源在能力通告上不出现）。动作首发：`tool`（经工具注册表调用，含 MCP stdio 与内置工具，超时沿用 agent `[agent] step_timeout_ms` 语义按 15s 默认）；TTS 播报/桌面通知/访客推送动作为后续加法。冷却：同规则 `cooldown_secs`（缺省 60）窗口内重复触发跳过（outcome=skipped）。每次执行发 §6 `plugin_invocation`（透明度）。**信任边界沿用 #43**：插件是部署者配置的本地能力组合，无远程发现/安装；权限声明 + 宿主白名单 + 外发知情；执行无人工确认门（确认门列为可选后续）。
