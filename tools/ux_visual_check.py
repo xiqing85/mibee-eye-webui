@@ -827,6 +827,44 @@ with sync_playwright() as p:
     pg.wait_for_timeout(900)
     check("devices: use-as-camera toast", pg.locator(".toast-success").count() >= 1)
 
+    # ── Ambient card (SPEC appendix A #49): cam-form gating ───────────
+    # Default mock carries voice → the ambient card must stay hidden.
+    check("ambient: card hidden on voice devices",
+          pg.locator("#ambient-card.hidden").count() == 1)
+    # Swap capabilities to a cam-form variant (audio_level event, no
+    # voice/chat): the ambient card appears and the hero hides — the two
+    # are mutually exclusive by design. Chat gates only hide, so the
+    # variant is restored by reloading the app afterwards.
+    pg.click("#nav .nav-tab[data-view=preview]")
+    pg.wait_for_timeout(300)
+    pg.evaluate("window.__test.setCaps({events: ['audio_level']})")
+    pg.wait_for_timeout(200)
+    check("ambient: card visible on cam-form caps",
+          pg.locator("#ambient-card:not(.hidden)").is_visible())
+    check("ambient: hero hidden when no voice/chat caps",
+          pg.locator("#agent-hero.hidden").count() == 1)
+    amb_before = pg.evaluate("document.getElementById('ambient-waveform').toDataURL().length")
+    pg.evaluate("window.sse.dispatchTestEvent('audio_level', "
+                "{level: 0.55, timestamp: Date.now(), capture_mode: 'passive', source: 'ambient'})")
+    pg.wait_for_timeout(500)
+    amb_now = pg.evaluate("document.getElementById('ambient-waveform').toDataURL().length")
+    check("ambient: canvas paints on audio_level sample",
+          amb_now > 0 and amb_now != amb_before)
+    check("ambient: level readout updates",
+          pg.locator("#ambient-level").inner_text().strip() == "55%")
+    amb_tag = pg.locator("#ambient-capture")
+    check("ambient: passive capture tag shows",
+          amb_tag.is_visible() and "active" not in
+          amb_tag.evaluate("el => el.className"))
+    # Restore the full capabilities document via a reload (chat and other
+    # hide-only gates come back with the fresh app boot).
+    pg.reload()
+    pg.wait_for_timeout(2500)
+    check("ambient: card hides again after reload",
+          pg.locator("#ambient-card.hidden").count() == 1)
+    check("ambient: hero restored after reload",
+          pg.locator("#agent-hero:not(.hidden)").count() == 1)
+
     # ── Language toggle (zh→en) ───────────────────────────────────────
     pg.click("#nav .lang-btn")
     pg.wait_for_timeout(500)
