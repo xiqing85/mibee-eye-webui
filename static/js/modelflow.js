@@ -55,7 +55,7 @@ const EDGES = [
   ['decision', 'vlm', 'elbow:166'],
   ['cam', 'ai', 'h'],
   ['ai', 'face.recog', 'h'],
-  ['cam', 'ocr', 'low:366'],
+  ['cam', 'ocr', 'low:380'],
   ['ai', 'vlm', 'elbow:270'],
 ];
 
@@ -418,6 +418,7 @@ function renderLabels() {
 function labelKey(id) {
   return {
     'mic': 'mfMic',
+    'cam': 'mfCam',
     'out': 'mfOut',
     'voice.asr': 'mfAsr',
     'decision': 'mfDecision',

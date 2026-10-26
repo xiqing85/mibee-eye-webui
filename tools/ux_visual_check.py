@@ -552,7 +552,7 @@ with sync_playwright() as p:
       return {asrActive, ripple, edgeFlowing, pulse,
               asrIdle: !node('voice.asr')?.classList.contains('active'),
               llmActive: !!node('llm')?.classList.contains('active'),
-              asrSub: node('voice.asr')?.querySelector('.mf-sub')?.textContent || '',
+              asrSub: node('voice.asr')?.querySelector('.mf-meta')?.textContent || '',
               labels: node('llm')?.querySelector('.mf-label')?.textContent || ''};
     }""")
     check("flow: start activates the node", flow_state["asrActive"])
@@ -563,8 +563,8 @@ with sync_playwright() as p:
     check("flow: end deactivates when no longer inflight", flow_state["asrIdle"])
     check("flow: concurrent models stay active independently",
           flow_state["llmActive"])
-    check("flow: counter shows rate + last duration",
-          "近1分" in flow_state["asrSub"] and "640" in flow_state["asrSub"],
+    check("flow: counter shows count + last duration",
+          "n=" in flow_state["asrSub"] and "640ms" in flow_state["asrSub"],
           flow_state["asrSub"])
     check("flow: node labels localized (zh)", "思考模型" in flow_state["labels"],
           flow_state["labels"])
