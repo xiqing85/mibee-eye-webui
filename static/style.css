@@ -2306,7 +2306,7 @@ input[type="range"]::-moz-range-thumb {
 /* ── Model flow graph (SPEC §6 model_call, appendix A #50) — lane board v3 */
 .modelflow-wrap { overflow-x: auto; }
 #modelflow-svg {
-  display: block; width: 100%; max-width: 940px; margin: 0 auto;
+  display: block; width: 100%; max-width: 1280px; margin: 0 auto;
   height: auto; min-width: 620px;
 }
 #modelflow-svg .mf-grid-dot { fill: var(--border); opacity: .45; }
@@ -2315,7 +2315,7 @@ input[type="range"]::-moz-range-thumb {
   stroke: var(--border); stroke-width: 1; stroke-opacity: .6;
 }
 #modelflow-svg .mf-lane-cap {
-  font-size: 9.5px; letter-spacing: .18em;
+  font-size: 10.5px; letter-spacing: .18em;
   fill: var(--text-3, #6b7280); opacity: .8;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
@@ -2348,19 +2348,19 @@ input[type="range"]::-moz-range-thumb {
 }
 #modelflow-svg .mf-node.active .mf-bracket { opacity: .95; }
 #modelflow-svg .mf-code {
-  text-anchor: middle; font-size: 13px; font-weight: 700;
+  text-anchor: middle; font-size: 14.5px; font-weight: 700;
   letter-spacing: .14em; fill: var(--text, #e6e9ef); opacity: .8;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   transition: fill .2s, opacity .2s;
 }
 #modelflow-svg .mf-node.active .mf-code { fill: var(--accent-text); opacity: 1; }
 #modelflow-svg .mf-node .mf-label {
-  text-anchor: middle; font-size: 11px; fill: var(--text-2, #8b93a3);
+  text-anchor: middle; font-size: 12.5px; fill: var(--text-2, #8b93a3);
   transition: fill .2s;
 }
 #modelflow-svg .mf-node.active .mf-label { fill: var(--text, #e6e9ef); }
 #modelflow-svg .mf-meta {
-  text-anchor: middle; font-size: 10px;
+  text-anchor: middle; font-size: 11px;
   fill: var(--accent-text); opacity: .95;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-variant-numeric: tabular-nums;
