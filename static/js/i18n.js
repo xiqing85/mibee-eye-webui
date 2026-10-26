@@ -78,6 +78,7 @@ const DICT = {
     statusLabel: '状态',
     deleteCamera: '删除', deleteConfirm: '删除相机 {name}？',
     openLive: '查看实时', noCameras: '尚未添加相机',
+    liveEmptyTitle: '没有相机画面', liveEmptyHint: '此设备未配置相机，或当前形态未启用视频采集（拾音/对讲形态）',
     // Settings view
     configTitle: '系统配置', unsaved: '有未保存的更改',
     unsavedConfirm: '放弃未保存的更改？',
@@ -277,6 +278,7 @@ const DICT = {
     // Model flow graph (SPEC §6 model_call, appendix A #50)
     modelflowTitle: '模型流动图', modelflowDesc: '设备内部 AI 调用链实时视图——模型运行时节点波动、调用沿连线流动；多个模型并发时各自同时波动（仅模型名/时长，无内容）',
     mfMic: '麦克风', mfCam: '摄像头', mfOut: '播报',
+    mfLane1: '对话链 · DIALOGUE', mfLane2: '听觉与并行 · AUDIO / PARALLEL', mfLane3: '视觉感知 · VISION',
     mfAsr: '听觉识别', mfDecision: '意图决策', mfLlm: '思考模型', mfTts: '语音播报',
     mfCloud: '云端对话', mfVlm: '视觉理解', mfMeeting: '会议转写', mfSpeaker: '声纹识别',
     mfAudioAi: '声音事件', mfAi: '目标检测', mfFace: '人脸识别', mfOcr: '文字识别',
@@ -427,6 +429,7 @@ const DICT = {
     statusLabel: 'Status',
     deleteCamera: 'Delete', deleteConfirm: 'Delete camera {name}?',
     openLive: 'Open live', noCameras: 'No cameras yet',
+    liveEmptyTitle: 'No camera picture', liveEmptyHint: 'No camera configured, or video capture is disabled for this form (mic/talk)',
     // Settings view
     configTitle: 'Configuration', unsaved: 'Unsaved changes',
     unsavedConfirm: 'Discard unsaved changes?',
@@ -624,6 +627,7 @@ const DICT = {
     // Model flow graph (SPEC §6 model_call, appendix A #50)
     modelflowTitle: 'Model flow', modelflowDesc: 'Live view of the device\'s internal AI call chain — nodes ripple while their model runs, calls travel along the edges; concurrent models all ripple at once (names/durations only, never content)',
     mfMic: 'Mic', mfCam: 'Camera', mfOut: 'Speak',
+    mfLane1: 'DIALOGUE', mfLane2: 'AUDIO / PARALLEL', mfLane3: 'VISION',
     mfAsr: 'Hearing (ASR)', mfDecision: 'Decision', mfLlm: 'Thinking', mfTts: 'Speech',
     mfCloud: 'Cloud chat', mfVlm: 'Vision (VLM)', mfMeeting: 'Meeting', mfSpeaker: 'Voiceprint',
     mfAudioAi: 'Sound events', mfAi: 'Detection', mfFace: 'Face', mfOcr: 'OCR',

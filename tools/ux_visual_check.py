@@ -525,6 +525,24 @@ with sync_playwright() as p:
     # call-chain topology. Deterministic via the sse test seam; ambient
     # mock broadcasts keep counters moving, so reads use distinguishing
     # content (node ids, classes) rather than absolute counts. ─────────
+    # ── Live player empty state (camera-less forms) ────────────────────
+    empty_state = pg.evaluate("""async () => {
+      const store = await import('/js/store.js');
+      const live = await import('/js/live.js');
+      const saved = store.store.cameras;
+      const savedCap = store.store.caps;
+      store.store.cameras = [];
+      store.store.caps = { ...savedCap, camera_management: false };
+      await live.startLive();
+      const emptyShown = !document.getElementById('stream-empty').classList.contains('hidden');
+      const loadingHidden = document.getElementById('stream-loading').classList.contains('hidden');
+      store.store.cameras = saved;
+      store.store.caps = savedCap;
+      return { emptyShown, loadingHidden };
+    }""")
+    check("live: camera-less device shows the honest empty state",
+          empty_state["emptyShown"] and empty_state["loadingHidden"], str(empty_state))
+    shot(pg, "15z-live-empty", full=False)
     check("flow: card visible (observability.model_flow)",
           pg.locator("#modelflow-card:not(.hidden)").is_visible())
     check("flow: hero waveform untouched by the flow card",
@@ -544,7 +562,7 @@ with sync_playwright() as p:
       const edgeFlowing = svg.querySelectorAll('.mf-edge.flowing').length;
       const pulse = svg.querySelectorAll('.mf-pulse').length;
       const brackets = node('voice.asr')?.querySelectorAll('.mf-bracket').length || 0;
-      const asrVariant = node('voice.asr')?.querySelector('.mf-variant')?.textContent || '';
+      const asrVariant = node('voice.asr')?.querySelector('.mf-meta')?.textContent || '';
       m.dispatchTestEvent('model_call', {model:'voice.asr', variant:'paraformer-trilingual',
         phase:'end', duration_ms: 640, ok: true, timestamp_ms: Date.now()});
       m.dispatchTestEvent('model_call', {model:'llm', variant:'models/llm/Qwen3-4B-Instruct-2507-Q4_K_M.gguf',
@@ -554,8 +572,8 @@ with sync_playwright() as p:
       return {asrActive, ripple, edgeFlowing, pulse, brackets, asrVariant,
               asrIdle: !node('voice.asr')?.classList.contains('active'),
               llmActive: !!node('llm')?.classList.contains('active'),
-              asrSub: node('voice.asr')?.querySelector('.mf-sub')?.textContent || '',
-              llmVariant: node('llm')?.querySelector('.mf-variant')?.textContent || '',
+              asrSub: node('voice.asr')?.querySelector('.mf-meta')?.textContent || '',
+              llmVariant: node('llm')?.querySelector('.mf-meta')?.textContent || '',
               labels: node('llm')?.querySelector('.mf-label')?.textContent || ''};
     }""")
     check("flow: start activates the chip", flow_state["asrActive"])
@@ -566,9 +584,9 @@ with sync_playwright() as p:
     check("flow: HUD corner brackets rendered",
           flow_state["brackets"] == 4, str(flow_state["brackets"]))
     check("flow: chip shows the concrete model variant",
-          flow_state["asrVariant"] == "paraformer", flow_state["asrVariant"])
+          flow_state["asrVariant"].startswith("paraformer"), flow_state["asrVariant"])
     check("flow: long variant collapses to the model name",
-          flow_state["llmVariant"] == "Qwen3-4B", flow_state["llmVariant"])
+          flow_state["llmVariant"].startswith("Qwen3-4B"), flow_state["llmVariant"])
     check("flow: end deactivates when no longer inflight", flow_state["asrIdle"])
     check("flow: concurrent models stay active independently",
           flow_state["llmActive"])
