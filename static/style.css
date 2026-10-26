@@ -2295,6 +2295,14 @@ input[type="range"]::-moz-range-thumb {
 }
 .ambient-level { font-size: 13px; color: var(--text, #dde3ee); min-width: 38px; }
 
+/* ── Live player empty state (camera-less forms / no camera) ────────── */
+#stream-empty { gap: 10px; }
+#stream-empty .stream-empty-hint {
+  font-size: 12px; color: var(--text-3, #6b7280); max-width: 420px;
+  text-align: center; line-height: 1.5;
+}
+#stream-empty span:first-child { display: inline-flex; color: var(--text-3, #6b7280); }
+
 /* ── Model flow graph (SPEC §6 model_call, appendix A #50) — lane board v3 */
 .modelflow-wrap { overflow-x: auto; }
 #modelflow-svg {

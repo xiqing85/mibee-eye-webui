@@ -525,6 +525,24 @@ with sync_playwright() as p:
     # call-chain topology. Deterministic via the sse test seam; ambient
     # mock broadcasts keep counters moving, so reads use distinguishing
     # content (node ids, classes) rather than absolute counts. ─────────
+    # ── Live player empty state (camera-less forms) ────────────────────
+    empty_state = pg.evaluate("""async () => {
+      const store = await import('/js/store.js');
+      const live = await import('/js/live.js');
+      const saved = store.store.cameras;
+      const savedCap = store.store.caps;
+      store.store.cameras = [];
+      store.store.caps = { ...savedCap, camera_management: false };
+      await live.startLive();
+      const emptyShown = !document.getElementById('stream-empty').classList.contains('hidden');
+      const loadingHidden = document.getElementById('stream-loading').classList.contains('hidden');
+      store.store.cameras = saved;
+      store.store.caps = savedCap;
+      return { emptyShown, loadingHidden };
+    }""")
+    check("live: camera-less device shows the honest empty state",
+          empty_state["emptyShown"] and empty_state["loadingHidden"], str(empty_state))
+    shot(pg, "15z-live-empty", full=False)
     check("flow: card visible (observability.model_flow)",
           pg.locator("#modelflow-card:not(.hidden)").is_visible())
     check("flow: hero waveform untouched by the flow card",

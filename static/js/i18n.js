@@ -78,6 +78,7 @@ const DICT = {
     statusLabel: '状态',
     deleteCamera: '删除', deleteConfirm: '删除相机 {name}？',
     openLive: '查看实时', noCameras: '尚未添加相机',
+    liveEmptyTitle: '没有相机画面', liveEmptyHint: '此设备未配置相机，或当前形态未启用视频采集（拾音/对讲形态）',
     // Settings view
     configTitle: '系统配置', unsaved: '有未保存的更改',
     unsavedConfirm: '放弃未保存的更改？',
@@ -428,6 +429,7 @@ const DICT = {
     statusLabel: 'Status',
     deleteCamera: 'Delete', deleteConfirm: 'Delete camera {name}?',
     openLive: 'Open live', noCameras: 'No cameras yet',
+    liveEmptyTitle: 'No camera picture', liveEmptyHint: 'No camera configured, or video capture is disabled for this form (mic/talk)',
     // Settings view
     configTitle: 'Configuration', unsaved: 'Unsaved changes',
     unsavedConfirm: 'Discard unsaved changes?',
