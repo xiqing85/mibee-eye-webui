@@ -2314,7 +2314,7 @@ input[type="range"]::-moz-range-thumb {
 .modelflow-wrap { overflow-x: auto; }
 #modelflow-svg { display: block; width: 100%; height: auto; min-width: 620px; }
 #modelflow-svg .mf-edge {
-  fill: none; stroke: var(--accent-dim, #009a7a); stroke-width: 1.4; opacity: .45;
+  fill: none; stroke: var(--accent-dim, #009a7a); stroke-width: 1.4; opacity: .55;
   transition: stroke .25s, opacity .25s, stroke-width .25s;
 }
 #modelflow-svg .mf-edge.flowing { stroke: var(--accent); opacity: 1; stroke-width: 2; }
@@ -2343,18 +2343,18 @@ input[type="range"]::-moz-range-thumb {
 }
 #modelflow-svg .mf-code {
   text-anchor: middle; font-size: 13px; font-weight: 700;
-  letter-spacing: .12em; fill: var(--text, #e6e9ef); opacity: .85;
+  letter-spacing: .12em; fill: var(--text-primary); opacity: .85;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   transition: fill .25s, opacity .25s;
 }
 #modelflow-svg .mf-node.mini .mf-code { font-size: 10px; }
 #modelflow-svg .mf-node.active .mf-code { fill: var(--accent-text); opacity: 1; }
 #modelflow-svg .mf-label {
-  text-anchor: middle; font-size: 11.5px; fill: var(--text-2, #8b93a3);
+  text-anchor: middle; font-size: 11.5px; fill: var(--text-secondary);
   transition: fill .25s;
 }
 #modelflow-svg .mf-node.mini .mf-label { font-size: 10px; }
-#modelflow-svg .mf-node.active .mf-label { fill: var(--text, #e6e9ef); }
+#modelflow-svg .mf-node.active .mf-label { fill: var(--text-primary); }
 #modelflow-svg .mf-meta {
   text-anchor: middle; font-size: 10.5px;
   fill: var(--accent-text); opacity: .95;
@@ -2372,11 +2372,12 @@ input[type="range"]::-moz-range-thumb {
   to { transform: scale(2.1); opacity: 0; }
 }
 #modelflow-svg .mf-pulse { fill: var(--accent); pointer-events: none; }
+#modelflow-svg .mf-packet { fill: var(--accent); pointer-events: none; }
 #modelflow-svg .mf-pulse-halo {
   fill: var(--accent); pointer-events: none;
   filter: blur(3px);
 }
 @media (prefers-reduced-motion: reduce) {
   #modelflow-svg .mf-ripple, #modelflow-svg .mf-pulse,
-  #modelflow-svg .mf-pulse-halo { display: none; }
+  #modelflow-svg .mf-packet, #modelflow-svg .mf-pulse-halo { display: none; }
 }
