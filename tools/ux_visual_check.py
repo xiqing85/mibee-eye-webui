@@ -521,6 +521,54 @@ with sync_playwright() as p:
     check("tools: mcp row names its server",
           "home" in pg.locator("#tools-list .tool-row-source.mcp").first.inner_text())
     shot(pg, "15b-assistant-hero", full=False)
+    # ── Model flow graph (SPEC §6 model_call, appendix A #50): the live
+    # call-chain topology. Deterministic via the sse test seam; ambient
+    # mock broadcasts keep counters moving, so reads use distinguishing
+    # content (node ids, classes) rather than absolute counts. ─────────
+    check("flow: card visible (observability.model_flow)",
+          pg.locator("#modelflow-card:not(.hidden)").is_visible())
+    check("flow: hero waveform untouched by the flow card",
+          pg.locator("#agent-waveform").count() == 1 and
+          pg.locator("#modelflow-svg").count() == 1)
+    flow_state = pg.evaluate("""async () => {
+      const m = await import('/js/sse.js');
+      const svg = document.getElementById('modelflow-svg');
+      const node = (id) => svg.querySelector(`g[data-node="${id}"]`);
+      // Reset determinism, then run one hear → decide sequence.
+      const mf = await import('/js/modelflow.js');
+      mf.resetModelFlowForTests();
+      m.dispatchTestEvent('model_call', {model:'voice.asr', variant:'paraformer',
+        phase:'start', timestamp_ms: Date.now()});
+      const asrActive = !!node('voice.asr')?.classList.contains('active');
+      const ripple = svg.querySelectorAll('.mf-ripple').length;
+      const edgeFlowing = svg.querySelectorAll('.mf-edge.flowing').length;
+      const pulse = svg.querySelectorAll('.mf-pulse').length;
+      m.dispatchTestEvent('model_call', {model:'voice.asr', variant:'paraformer',
+        phase:'end', duration_ms: 640, ok: true, timestamp_ms: Date.now()});
+      m.dispatchTestEvent('model_call', {model:'llm', variant:'qwen3-4b',
+        phase:'start', timestamp_ms: Date.now()});
+      m.dispatchTestEvent('model_call', {model:'totally.unknown', variant:'x',
+        phase:'start', timestamp_ms: Date.now()});
+      return {asrActive, ripple, edgeFlowing, pulse,
+              asrIdle: !node('voice.asr')?.classList.contains('active'),
+              llmActive: !!node('llm')?.classList.contains('active'),
+              asrSub: node('voice.asr')?.querySelector('.mf-sub')?.textContent || '',
+              labels: node('llm')?.querySelector('.mf-label')?.textContent || ''};
+    }""")
+    check("flow: start activates the node", flow_state["asrActive"])
+    check("flow: start spawns a ripple ring", flow_state["ripple"] >= 1)
+    check("flow: incoming edge highlights on start",
+          flow_state["edgeFlowing"] >= 1)
+    check("flow: a pulse travels the edge", flow_state["pulse"] >= 1)
+    check("flow: end deactivates when no longer inflight", flow_state["asrIdle"])
+    check("flow: concurrent models stay active independently",
+          flow_state["llmActive"])
+    check("flow: counter shows rate + last duration",
+          "近1分" in flow_state["asrSub"] and "640" in flow_state["asrSub"],
+          flow_state["asrSub"])
+    check("flow: node labels localized (zh)", "思考模型" in flow_state["labels"],
+          flow_state["labels"])
+    shot(pg, "15d-model-flow", full=False)
     # Clear-all with confirmation (SPEC §3.4 DELETE): cancel keeps rows,
     # confirm empties the chat history (restored turns + local ones).
     pg.click("#chat-clear")

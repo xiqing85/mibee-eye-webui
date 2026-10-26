@@ -304,7 +304,7 @@ CAPS = {
     "substream": True,
     "webrtc": False,
     "events": ["camera_added", "camera_offlined", "param_changed", "ai_detection",
-               "ai_model_changed", "recording", "status", "alarm", "alarm_description", "voice_transcript", "chat_reply", "conversation", "zone_event", "voice_decision", "meeting_state", "model_task", "audio_level", "agent_step", "away_event", "away_state", "scale"],
+               "ai_model_changed", "recording", "status", "alarm", "alarm_description", "voice_transcript", "chat_reply", "conversation", "zone_event", "voice_decision", "meeting_state", "model_task", "audio_level", "agent_step", "away_event", "away_state", "scale", "model_call"],
     "config_apply": {"default": "restart", "sections": {"imaging": "immediate",
                                                         # demonstrates the immediate badge on a real config section
                                                         "logging": "immediate",
@@ -313,7 +313,7 @@ CAPS = {
     "model_manager": True,
     "cloud_ai": True,
     "observability": {"metrics": True, "logs": True, "requests": True,
-                      "traces": True, "model_metrics": True},
+                      "traces": True, "model_metrics": True, "model_flow": True},
     # Conversation records (SPEC §3.4) — the human-readable dialogue log.
     "conversations": True,
     # Tool/skill framework (SPEC §3.5) — registry snapshot.
@@ -725,6 +725,32 @@ def ai_thread():
             ev = dict(samples[(fn // 22) % len(samples)])
             ev["timestamp"] = int(time.time() * 1000)
             sse_broadcast("scale", ev)
+
+        # Model call chain (SPEC §6 model_call, appendix A #50) — ambient
+        # detectors every tick, one full dialogue turn every ~16s so the
+        # flow graph shows ripples, edge pulses, lit long calls and
+        # concurrency.
+        def _mc(model, phase, **kw):
+            ev = {"model": model, "variant": "mock", "phase": phase,
+                  "timestamp_ms": int(time.time() * 1000)}
+            ev.update(kw)
+            sse_broadcast("model_call", ev)
+        for m in ("ai", "audio_ai"):
+            _mc(m, "start")
+            _mc(m, "end", duration_ms=8 + fn % 5, ok=True)
+        if fn % 2 == 0:
+            _mc("face.recog", "start")
+            _mc("face.recog", "end", duration_ms=14, ok=True)
+        if fn % 8 == 4:
+            _mc("voice.asr", "start")
+            _mc("voice.asr", "end", duration_ms=640, ok=True)
+            _mc("decision", "start")
+            _mc("decision", "end", duration_ms=88, ok=True)
+            _mc("llm", "start")
+        if fn % 8 == 5:
+            _mc("llm", "end", duration_ms=1800 + (fn % 3) * 400, ok=True)
+            _mc("tts.zh", "start")
+            _mc("tts.zh", "end", duration_ms=910, ok=True)
 
 
 class Handler(BaseHTTPRequestHandler):

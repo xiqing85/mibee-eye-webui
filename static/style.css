@@ -2294,3 +2294,48 @@ input[type="range"]::-moz-range-thumb {
   margin-top: 8px; font-size: 12px; color: var(--text-dim, #8b93a1);
 }
 .ambient-level { font-size: 13px; color: var(--text, #dde3ee); min-width: 38px; }
+
+/* ── Model flow graph (SPEC §6 model_call, appendix A #50) ──────────── */
+.modelflow-wrap { overflow-x: auto; }
+#modelflow-svg { display: block; width: 100%; height: auto; min-width: 560px; }
+#modelflow-svg .mf-edge {
+  fill: none; stroke: var(--border); stroke-width: 1.4; opacity: .7;
+  transition: stroke .3s, opacity .3s, stroke-width .3s;
+}
+#modelflow-svg .mf-edge.flowing { stroke: var(--accent); opacity: 1; stroke-width: 2.1; }
+#modelflow-svg .mf-node .core {
+  fill: var(--bg-2, rgba(127,127,127,.08));
+  stroke: var(--border); stroke-width: 1.4;
+  transition: stroke .25s, filter .25s;
+}
+#modelflow-svg .mf-node.anchor .core { stroke-dasharray: 3 3; }
+#modelflow-svg .mf-node.active .core {
+  stroke: var(--accent);
+  filter: drop-shadow(0 0 7px var(--accent-bg));
+}
+#modelflow-svg .mf-node.errored .core { stroke: #e5484d; }
+#modelflow-svg .mf-node .glyph {
+  text-anchor: middle; font-size: 19px; pointer-events: none;
+}
+#modelflow-svg .mf-node.anchor .glyph { font-size: 13px; }
+#modelflow-svg .mf-node .mf-label {
+  text-anchor: middle; font-size: 11px; fill: var(--text-2, #8b93a3);
+}
+#modelflow-svg .mf-node .mf-sub {
+  text-anchor: middle; font-size: 10px; fill: var(--text-3, #6b7280);
+  font-variant-numeric: tabular-nums;
+}
+#modelflow-svg .mf-node.active .mf-label { fill: var(--accent-text); }
+#modelflow-svg .mf-ripple {
+  fill: none; stroke: var(--accent); stroke-width: 2; pointer-events: none;
+  transform-box: fill-box; transform-origin: center;
+  animation: mf-ripple .9s ease-out forwards;
+}
+@keyframes mf-ripple {
+  from { transform: scale(.55); opacity: .6; }
+  to { transform: scale(2.25); opacity: 0; }
+}
+#modelflow-svg .mf-pulse { fill: var(--accent); pointer-events: none; }
+@media (prefers-reduced-motion: reduce) {
+  #modelflow-svg .mf-ripple, #modelflow-svg .mf-pulse { display: none; }
+}
