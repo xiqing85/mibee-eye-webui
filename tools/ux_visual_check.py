@@ -614,7 +614,10 @@ with sync_playwright() as p:
       const prev = root.dataset.theme;
       root.dataset.theme = 'light';
       await new Promise((r) => setTimeout(r, 420));
-      const codeFill = getComputedStyle(node('llm').querySelector('.mf-code')).fill;
+      // Sample the MIC anchor: it never activates, so its code color is
+      // always the idle text color (the active accent-text on mid-chain
+      // orbs races the mock's periodic dialogue chain).
+      const codeFill = getComputedStyle(node('mic').querySelector('.mf-code')).fill;
       root.dataset.theme = prev;
       return {nodes: all.length, edges: svg.querySelectorAll('.mf-edge').length,
               unwired: all.filter((id) => !wired.has(id)),
@@ -638,6 +641,38 @@ with sync_playwright() as p:
           flow_v6["ambient"] >= 3, str(flow_v6["ambient"]))
     check("flow: light theme renders dark text (v5 near-white bug)",
           flow_v6["codeFill"] == "rgb(23, 34, 46)", flow_v6["codeFill"])
+    # ── Glossary overlay ("?" on the card): opens with every node's
+    # model + the meta-line data definitions; closes via button and ESC.
+    pg.click("#mf-help")
+    pg.wait_for_timeout(200)
+    check("flow: help button opens the glossary overlay",
+          pg.locator("#mf-help-overlay:not(.hidden)").is_visible())
+    help_state = pg.evaluate("""() => {
+      const ov = document.getElementById('mf-help-overlay');
+      return {nodes: ov.querySelectorAll('.mf-help-node').length,
+              legend: ov.querySelectorAll('.mf-help-legend li').length,
+              llmDesc: (ov.querySelector('[data-i18n="mfHelpLlm"]') || {}).textContent || '',
+              countDef: (ov.querySelector('[data-i18n="mfDfCount"]') || {}).textContent || ''};
+    }""")
+    check("flow: glossary covers all 15 nodes",
+          help_state["nodes"] == 15, str(help_state["nodes"]))
+    check("flow: glossary legend has 6 visual keys",
+          help_state["legend"] == 6, str(help_state["legend"]))
+    check("flow: LLM entry explains the elastic tier",
+          "弹性" in help_state["llmDesc"], help_state["llmDesc"])
+    check("flow: data definition explains the 60s window",
+          "60" in help_state["countDef"], help_state["countDef"])
+    shot(pg, "15e-model-flow-help", full=False)
+    pg.click("#mf-help-close")
+    pg.wait_for_timeout(150)
+    check("flow: help closes via button",
+          pg.locator("#mf-help-overlay.hidden").count() == 1)
+    pg.click("#mf-help")
+    pg.wait_for_timeout(150)
+    pg.keyboard.press("Escape")
+    pg.wait_for_timeout(150)
+    check("flow: help closes via Escape",
+          pg.locator("#mf-help-overlay.hidden").count() == 1)
     shot(pg, "15d-model-flow", full=False)
     # Clear-all with confirmation (SPEC §3.4 DELETE): cancel keeps rows,
     # confirm empties the chat history (restored turns + local ones).
