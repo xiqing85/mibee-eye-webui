@@ -730,27 +730,33 @@ def ai_thread():
         # detectors every tick, one full dialogue turn every ~16s so the
         # flow graph shows ripples, edge pulses, lit long calls and
         # concurrency.
-        def _mc(model, phase, **kw):
-            ev = {"model": model, "variant": "mock", "phase": phase,
+        def _mc(model, phase, variant="mock", **kw):
+            ev = {"model": model, "variant": variant, "phase": phase,
                   "timestamp_ms": int(time.time() * 1000)}
             ev.update(kw)
             sse_broadcast("model_call", ev)
+        _V = {"ai": "models/nanodet-m.onnx", "audio_ai": "models/audio/yamnet.onnx",
+              "face.recog": "face_recognition_sface_2021dec",
+              "voice.asr": "paraformer-trilingual",
+              "decision": "laya_multilingual.int8",
+              "llm": "models/llm/Qwen3-4B-Instruct-2507-Q4_K_M.gguf",
+              "tts.zh": "models/voice/tts-zh/melo.onnx"}
         for m in ("ai", "audio_ai"):
-            _mc(m, "start")
-            _mc(m, "end", duration_ms=8 + fn % 5, ok=True)
+            _mc(m, "start", variant=_V[m])
+            _mc(m, "end", variant=_V[m], duration_ms=8 + fn % 5, ok=True)
         if fn % 2 == 0:
-            _mc("face.recog", "start")
-            _mc("face.recog", "end", duration_ms=14, ok=True)
+            _mc("face.recog", "start", variant=_V["face.recog"])
+            _mc("face.recog", "end", variant=_V["face.recog"], duration_ms=14, ok=True)
         if fn % 8 == 4:
-            _mc("voice.asr", "start")
-            _mc("voice.asr", "end", duration_ms=640, ok=True)
-            _mc("decision", "start")
-            _mc("decision", "end", duration_ms=88, ok=True)
-            _mc("llm", "start")
+            _mc("voice.asr", "start", variant=_V["voice.asr"])
+            _mc("voice.asr", "end", variant=_V["voice.asr"], duration_ms=640, ok=True)
+            _mc("decision", "start", variant=_V["decision"])
+            _mc("decision", "end", variant=_V["decision"], duration_ms=88, ok=True)
+            _mc("llm", "start", variant=_V["llm"])
         if fn % 8 == 5:
-            _mc("llm", "end", duration_ms=1800 + (fn % 3) * 400, ok=True)
-            _mc("tts.zh", "start")
-            _mc("tts.zh", "end", duration_ms=910, ok=True)
+            _mc("llm", "end", variant=_V["llm"], duration_ms=1800 + (fn % 3) * 400, ok=True)
+            _mc("tts.zh", "start", variant=_V["tts.zh"])
+            _mc("tts.zh", "end", variant=_V["tts.zh"], duration_ms=910, ok=True)
 
 
 class Handler(BaseHTTPRequestHandler):
