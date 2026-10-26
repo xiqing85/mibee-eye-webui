@@ -1,9 +1,10 @@
 // Model flow graph (SPEC §6 `model_call` + §3.1 `observability.model_flow`,
-// appendix A #50): a lane-structured circuit board of the device's AI
-// pipeline — chips with the mono code + localized role inside, one meta
-// line under each (model variant · rate · duration), a distribution bus
-// per source, data packets on the traces. Concurrent models all animate
-// at once; an elastic tier swap renames the chip on the next call.
+// appendix A #50): a live HUD of the device's AI pipeline, in the same
+// visual language as the voiceprint hero — glowing orbs on dark, circular
+// ripples while a model runs, energy dots travelling curved links. The
+// dialogue chain is the hero row; the always-on perception models sit in
+// a compact strip beneath. Concurrent models all animate at once; an
+// elastic tier swap renames the orb on the next call.
 
 import { store } from './store.js';
 import { t } from './i18n.js';
@@ -13,53 +14,44 @@ const SVG_NS = 'http://www.w3.org/2000/svg';
 const REDUCED = typeof matchMedia === 'function'
   && matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-// Two-tier composition: the dialogue chain is the hero (full chips on
-// two rows), the always-on perception models are a compact status strip
-// (small badges, no trace spaghetti) — the card stays ~half the height
-// so it never dominates the assistant page.
-const CHAIN_Y = 64;
-const ALT_Y = 150;
-const STRIP_Y = 224;
-const CHIP_W = 96;
-const CHIP_H = 36;
-const BADGE_W = 84;
-const BADGE_H = 30;
+// The canvas fills the card width (the card itself sits in the page's
+// content column like every other card); geometry below spreads content
+// edge to edge with symmetric margins so nothing floats or clips.
+const CHAIN_Y = 74;
+const ALT_Y = 182;
+const STRIP_Y = 260;
+const ORB_R = 27;    // dialogue-chain orbs
+const MINI_R = 20;   // ambient-strip orbs
 
 const NODES = [
-  { id: 'mic', x: 66, y: CHAIN_Y, w: CHIP_W, h: CHIP_H, anchor: true, code: 'MIC' },
-  { id: 'voice.asr', x: 220, y: CHAIN_Y, w: CHIP_W, h: CHIP_H, code: 'ASR' },
-  { id: 'decision', x: 374, y: CHAIN_Y, w: CHIP_W, h: CHIP_H, code: 'DEC' },
-  { id: 'llm', x: 528, y: CHAIN_Y, w: CHIP_W, h: CHIP_H, code: 'LLM' },
-  { id: 'tts', x: 682, y: CHAIN_Y, w: CHIP_W, h: CHIP_H, code: 'TTS' },
-  { id: 'out', x: 848, y: CHAIN_Y, w: CHIP_W, h: CHIP_H, anchor: true, code: 'OUT' },
-  { id: 'cloud.chat', x: 528, y: ALT_Y, w: CHIP_W, h: CHIP_H, code: 'CLD' },
-  { id: 'vlm', x: 682, y: ALT_Y, w: CHIP_W, h: CHIP_H, code: 'VLM' },
-  { id: 'audio_ai', x: 120, y: STRIP_Y, w: BADGE_W, h: BADGE_H, badge: true, code: 'SND' },
-  { id: 'speaker', x: 268, y: STRIP_Y, w: BADGE_W, h: BADGE_H, badge: true, code: 'SPK' },
-  { id: 'meeting', x: 416, y: STRIP_Y, w: BADGE_W, h: BADGE_H, badge: true, code: 'MTG' },
-  { id: 'ai', x: 564, y: STRIP_Y, w: BADGE_W, h: BADGE_H, badge: true, code: 'DET' },
-  { id: 'face.recog', x: 712, y: STRIP_Y, w: BADGE_W, h: BADGE_H, badge: true, code: 'FACE' },
-  { id: 'ocr', x: 860, y: STRIP_Y, w: BADGE_W, h: BADGE_H, badge: true, code: 'OCR' },
+  { id: 'mic', x: 70, y: CHAIN_Y, r: 22, anchor: true, code: 'MIC' },
+  { id: 'voice.asr', x: 226, y: CHAIN_Y, r: ORB_R, code: 'ASR' },
+  { id: 'decision', x: 382, y: CHAIN_Y, r: ORB_R, code: 'DEC' },
+  { id: 'llm', x: 538, y: CHAIN_Y, r: ORB_R, code: 'LLM' },
+  { id: 'tts', x: 694, y: CHAIN_Y, r: ORB_R, code: 'TTS' },
+  { id: 'out', x: 850, y: CHAIN_Y, r: 22, anchor: true, code: 'OUT' },
+  { id: 'cloud.chat', x: 460, y: ALT_Y, r: ORB_R, code: 'CLD' },
+  { id: 'vlm', x: 616, y: ALT_Y, r: ORB_R, code: 'VLM' },
+  { id: 'audio_ai', x: 118, y: STRIP_Y, r: MINI_R, mini: true, code: 'SND' },
+  { id: 'speaker', x: 258, y: STRIP_Y, r: MINI_R, mini: true, code: 'SPK' },
+  { id: 'meeting', x: 398, y: STRIP_Y, r: MINI_R, mini: true, code: 'MTG' },
+  { id: 'ai', x: 538, y: STRIP_Y, r: MINI_R, mini: true, code: 'DET' },
+  { id: 'face.recog', x: 678, y: STRIP_Y, r: MINI_R, mini: true, code: 'FACE' },
+  { id: 'ocr', x: 818, y: STRIP_Y, r: MINI_R, mini: true, code: 'OCR' },
 ];
 
-// Orthogonal PCB traces. 'h'/'v' straight; 'elbow:<midY>' routes
-// bottom(src) → midY → top(dst) — sharing a midY merges the overlapping
-// segments into one visual bus; 'low:<midY>' routes below the
-// destination row and rises into its bottom edge.
+// Curved energy links: [src, dst, sag] — sag bows the curve to the right
+// of the travel direction.
 const EDGES = [
-  ['mic', 'voice.asr', 'h'],
-  ['voice.asr', 'decision', 'h'],
-  ['decision', 'llm', 'h'],
-  ['llm', 'tts', 'h'],
-  ['tts', 'out', 'h'],
-  ['decision', 'cloud.chat', 'elbow:107'],
-  ['cloud.chat', 'tts', 'elbow:120'],
-  ['decision', 'vlm', 'elbow:128'],
+  ['mic', 'voice.asr', 9],
+  ['voice.asr', 'decision', 9],
+  ['decision', 'llm', 9],
+  ['llm', 'tts', 9],
+  ['tts', 'out', 9],
+  ['decision', 'cloud.chat', 22],
+  ['cloud.chat', 'tts', 22],
+  ['decision', 'vlm', 36],
 ];
-
-// Via where the two alternate traces cross the chain column.
-const PADS = [];
-const VIAS = [[528, 120]];
 
 const MODEL_TO_NODE = {
   'voice.asr': 'voice.asr',
@@ -79,7 +71,7 @@ const MODEL_TO_NODE = {
   'ocr': 'ocr',
 };
 
-const RIPPLE_MIN_GAP_MS = 600;    // per-chip visual throttle (counters stay real)
+const RIPPLE_MIN_GAP_MS = 600;    // per-orb visual throttle (counters stay real)
 const INFLIGHT_RIPPLE_MS = 1400;  // long calls keep pulsing while active
 
 const state = {
@@ -92,7 +84,6 @@ const state = {
   variant: {},      // id → concrete model name (live)
   lastRipple: {},   // id → ms of last ripple spawn
   rippleGen: {},    // id → generation (stops re-ripple loops)
-  laneCaps: [],     // [{el, key}] lane band captions
 };
 
 export function initModelFlow() {
@@ -113,8 +104,8 @@ export function updateModelFlowVisibility() {
   if (on) buildGraph();
 }
 
-/// One §6 model_call payload: start lights the chip (pulse rings + data
-/// packets on the incoming traces + the concrete variant name), end
+/// One §6 model_call payload: start lights the orb (circular ripples +
+/// energy dots on the incoming links + the concrete variant name), end
 /// clears one inflight slot and refreshes the counters. Unknown model
 /// names are ignored (SPEC fail-open).
 export function handleModelCall(ev) {
@@ -145,9 +136,9 @@ export function handleModelCall(ev) {
   renderMeta(id);
 }
 
-/// Collapse a variant string to the concrete model name shown on the
-/// chip: basename without paths/extensions, cut at a natural boundary
-/// (hyphen/underscore) when too long for the chip width.
+/// Collapse a variant string to the concrete model name shown under the
+/// orb: basename without paths/extensions, cut at a natural boundary
+/// (hyphen/underscore) when too long.
 /// "models/llm/Qwen3-4B-Instruct-2507-Q4_K_M.gguf" → "Qwen3-4B",
 /// "paraformer-trilingual" → "paraformer".
 function variantShort(variant) {
@@ -179,15 +170,11 @@ function ripple(id) {
   const now = performance.now();
   if (now - (state.lastRipple[id] || 0) < RIPPLE_MIN_GAP_MS) return;
   state.lastRipple[id] = now;
-  const w = Number(node.g.dataset.w || CHIP_W);
-  const h = Number(node.g.dataset.h || CHIP_H);
-  const ring = document.createElementNS(SVG_NS, 'rect');
+  const ring = document.createElementNS(SVG_NS, 'circle');
   ring.setAttribute('class', 'mf-ripple');
-  ring.setAttribute('x', Number(node.g.dataset.x) - w / 2);
-  ring.setAttribute('y', Number(node.g.dataset.y) - h / 2);
-  ring.setAttribute('width', w);
-  ring.setAttribute('height', h);
-  ring.setAttribute('rx', 5);
+  ring.setAttribute('cx', Number(node.g.dataset.x));
+  ring.setAttribute('cy', Number(node.g.dataset.y));
+  ring.setAttribute('r', Number(node.g.dataset.r));
   ring.addEventListener('animationend', () => ring.remove());
   svg.appendChild(ring);
 }
@@ -203,95 +190,84 @@ function flowInto(id) {
   }
 }
 
-/// A short data packet sliding along the trace, oriented by the local
-/// tangent — PCB data-flow feel.
+/// A glowing energy dot (bright core + soft halo) sliding along the link.
 function travelPacket(path) {
   const svg = $('modelflow-svg');
   if (!svg) return;
   const len = path.getTotalLength();
-  const packet = document.createElementNS(SVG_NS, 'rect');
-  packet.setAttribute('class', 'mf-pulse');
-  packet.setAttribute('width', '10');
-  packet.setAttribute('height', '2.6');
-  packet.setAttribute('rx', '1');
-  svg.appendChild(packet);
+  const halo = document.createElementNS(SVG_NS, 'circle');
+  halo.setAttribute('class', 'mf-pulse-halo');
+  halo.setAttribute('r', '7');
+  const dot = document.createElementNS(SVG_NS, 'circle');
+  dot.setAttribute('class', 'mf-pulse');
+  dot.setAttribute('r', '3.2');
+  svg.appendChild(halo);
+  svg.appendChild(dot);
   const t0 = performance.now();
   const DUR = 480;
   const step = (now) => {
     const k = Math.min(1, (now - t0) / DUR);
-    const l = k * len;
-    const p = path.getPointAtLength(l);
-    const q = path.getPointAtLength(Math.min(len, l + 1));
-    const a = (Math.atan2(q.y - p.y, q.x - p.x) * 180) / Math.PI;
-    packet.setAttribute('transform', `translate(${p.x - 5} ${p.y - 1.3}) rotate(${a.toFixed(1)} 5 1.3)`);
-    packet.setAttribute('opacity', String(0.95 - k * 0.35));
+    const p = path.getPointAtLength(k * len);
+    for (const el of [halo, dot]) {
+      el.setAttribute('cx', p.x);
+      el.setAttribute('cy', p.y);
+      el.setAttribute('opacity', String((el === halo ? 0.5 : 1) - k * 0.3));
+    }
     if (k < 1) requestAnimationFrame(step);
-    else packet.remove();
+    else {
+      halo.remove();
+      dot.remove();
+    }
   };
   requestAnimationFrame(step);
 }
 
-/// Chip: 104×42 rect with two lines inside (mono code + localized role)
-/// and ONE meta line below (variant · rate · duration) — a uniform
-/// rhythm across all chips.
 function buildGraph() {
   if (state.built) return;
   const svg = $('modelflow-svg');
   if (!svg) return;
   state.built = true;
-  svg.appendChild(dotGrid());
-  svg.appendChild(lanes());
-
   const byId = Object.fromEntries(NODES.map((n) => [n.id, n]));
-  for (const [src, dst, shape] of EDGES) {
-    const a = byId[src];
-    const b = byId[dst];
+  for (const [src, dst, sag] of EDGES) {
     const path = document.createElementNS(SVG_NS, 'path');
-    path.setAttribute('d', tracePath(a, b, shape));
+    path.setAttribute('d', curvePath(byId[src], byId[dst], sag));
     path.setAttribute('class', 'mf-edge');
     svg.appendChild(path);
     state.edges[`${src}>${dst}`] = path;
   }
-  for (const [px, py] of PADS) {
-    const pad = document.createElementNS(SVG_NS, 'rect');
-    pad.setAttribute('x', px - 2.6);
-    pad.setAttribute('y', py - 2.6);
-    pad.setAttribute('width', 5.2);
-    pad.setAttribute('height', 5.2);
-    pad.setAttribute('class', 'mf-pad');
-    svg.appendChild(pad);
-  }
-  for (const [vx, vy] of VIAS) {
-    const via = document.createElementNS(SVG_NS, 'circle');
-    via.setAttribute('cx', vx);
-    via.setAttribute('cy', vy);
-    via.setAttribute('r', '4');
-    via.setAttribute('class', 'mf-via');
-    svg.appendChild(via);
-  }
   for (const n of NODES) {
     const g = document.createElementNS(SVG_NS, 'g');
-    g.setAttribute('class', `mf-node${n.anchor ? ' anchor' : ''}${n.badge ? ' badge' : ''}`);
+    g.setAttribute('class', `mf-node${n.anchor ? ' anchor' : ''}${n.mini ? ' mini' : ''}`);
     g.dataset.node = n.id;
     g.dataset.x = n.x;
     g.dataset.y = n.y;
-    g.dataset.w = n.w;
-    g.dataset.h = n.h;
-    g.appendChild(chipFrame(n));
+    g.dataset.r = n.r;
+    const halo = document.createElementNS(SVG_NS, 'circle');
+    halo.setAttribute('cx', n.x);
+    halo.setAttribute('cy', n.y);
+    halo.setAttribute('r', n.r + 6);
+    halo.setAttribute('class', 'halo');
+    g.appendChild(halo);
+    const core = document.createElementNS(SVG_NS, 'circle');
+    core.setAttribute('cx', n.x);
+    core.setAttribute('cy', n.y);
+    core.setAttribute('r', n.r);
+    core.setAttribute('class', 'core');
+    g.appendChild(core);
     const code = document.createElementNS(SVG_NS, 'text');
     code.setAttribute('x', n.x);
-    code.setAttribute('y', n.y + (n.badge ? 1 : -1));
+    code.setAttribute('y', n.y + 4);
     code.setAttribute('class', 'mf-code');
     code.textContent = n.code;
     g.appendChild(code);
     const label = document.createElementNS(SVG_NS, 'text');
     label.setAttribute('x', n.x);
-    label.setAttribute('y', n.y + n.h / 2 + 11);
+    label.setAttribute('y', n.y + n.r + 14);
     label.setAttribute('class', 'mf-label');
     g.appendChild(label);
     const meta = document.createElementNS(SVG_NS, 'text');
     meta.setAttribute('x', n.x);
-    meta.setAttribute('y', n.y + n.h / 2 + 23);
+    meta.setAttribute('y', n.y + n.r + 27);
     meta.setAttribute('class', 'mf-meta');
     g.appendChild(meta);
     svg.appendChild(g);
@@ -300,112 +276,24 @@ function buildGraph() {
   renderLabels();
 }
 
-/// The chip rect plus four HUD corner brackets (visible when active).
-function chipFrame(n) {
-  const frag = document.createDocumentFragment();
-  const rect = document.createElementNS(SVG_NS, 'rect');
-  rect.setAttribute('x', n.x - n.w / 2);
-  rect.setAttribute('y', n.y - n.h / 2);
-  rect.setAttribute('width', n.w);
-  rect.setAttribute('height', n.h);
-  rect.setAttribute('rx', 5);
-  rect.setAttribute('class', 'core');
-  frag.appendChild(rect);
-  const b = n.badge ? 6 : 8; // bracket arm length
-  const x0 = n.x - n.w / 2 - 3;
-  const x1 = n.x + n.w / 2 + 3;
-  const y0 = n.y - n.h / 2 - 3;
-  const y1 = n.y + n.h / 2 + 3;
-  const corners = [
-    `M ${x0} ${y0 + b} V ${y0} H ${x0 + b}`,
-    `M ${x1 - b} ${y0} H ${x1} V ${y0 + b}`,
-    `M ${x1} ${y1 - b} V ${y1} H ${x1 - b}`,
-    `M ${x0 + b} ${y1} H ${x0} V ${y1 - b}`,
-  ];
-  for (const d of corners) {
-    const p = document.createElementNS(SVG_NS, 'path');
-    p.setAttribute('d', d);
-    p.setAttribute('class', 'mf-bracket');
-    frag.appendChild(p);
-  }
-  return frag;
-}
-
-/// PCB trace geometry: 'h'/'v' straight between chip borders;
-/// 'elbow:<midY>' bottom(src) → midY → top(dst); 'low:<midY>' routes
-/// below the destination row and rises into its bottom edge.
-function tracePath(a, b, shape) {
-  const [ax, ay, bx, by] = [a.x, a.y, b.x, b.y];
-  if (shape === 'h') {
-    const x1 = ax < bx ? ax + a.w / 2 : ax - a.w / 2;
-    const x2 = ax < bx ? bx - b.w / 2 : bx + b.w / 2;
-    return `M ${x1} ${ay} H ${x2}`;
-  }
-  if (shape === 'v') {
-    const y1 = ay < by ? ay + a.h / 2 : ay - a.h / 2;
-    const y2 = ay < by ? by - b.h / 2 : by + b.h / 2;
-    return `M ${ax} ${y1} V ${y2}`;
-  }
-  const midY = Number(shape.split(':')[1]);
-  const fromTop = by < ay;
-  const y1 = fromTop ? ay - a.h / 2 : ay + a.h / 2;
-  const y2 = fromTop ? by + b.h / 2 : by - b.h / 2;
-  return `M ${ax} ${y1} V ${midY} H ${bx} V ${y2}`;
-}
-
-/// Three lane bands (dialogue / audio & parallel / vision) — the board's
-/// structure, so the chips sit in a designed panel instead of a void.
-function lanes() {
-  const frag = document.createDocumentFragment();
-  const bands = [
-    [24, 176, 'mfLane1'],
-    [202, 74, 'mfLane3'],
-  ];
-  for (const [y, h, key] of bands) {
-    const rect = document.createElementNS(SVG_NS, 'rect');
-    rect.setAttribute('x', 8);
-    rect.setAttribute('y', y);
-    rect.setAttribute('width', 904);
-    rect.setAttribute('height', h);
-    rect.setAttribute('rx', 8);
-    rect.setAttribute('class', 'mf-lane');
-    frag.appendChild(rect);
-    const cap = document.createElementNS(SVG_NS, 'text');
-    cap.setAttribute('x', 16);
-    cap.setAttribute('y', y + 15);
-    cap.setAttribute('class', 'mf-lane-cap');
-    frag.appendChild(cap);
-    state.laneCaps = state.laneCaps || [];
-    state.laneCaps.push({ el: cap, key });
-  }
-  return frag;
-}
-
-/// Subtle dot-grid background — the board the chips sit on.
-function dotGrid() {
-  const defs = document.createElementNS(SVG_NS, 'defs');
-  const pattern = document.createElementNS(SVG_NS, 'pattern');
-  pattern.setAttribute('id', 'mf-grid');
-  pattern.setAttribute('width', '22');
-  pattern.setAttribute('height', '22');
-  pattern.setAttribute('patternUnits', 'userSpaceOnUse');
-  const dot = document.createElementNS(SVG_NS, 'circle');
-  dot.setAttribute('cx', '1');
-  dot.setAttribute('cy', '1');
-  dot.setAttribute('r', '0.9');
-  dot.setAttribute('class', 'mf-grid-dot');
-  pattern.appendChild(dot);
-  defs.appendChild(pattern);
-  const bg = document.createElementNS(SVG_NS, 'rect');
-  bg.setAttribute('width', '100%');
-  bg.setAttribute('height', '100%');
-  bg.setAttribute('fill', 'url(#mf-grid)');
-  return bg;
+/// Energy link between two orbs: leaves/enters at the orb borders,
+/// bowed by `sag` to the right of the travel direction.
+function curvePath(a, b, sag) {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const dist = Math.hypot(dx, dy) || 1;
+  const ux = dx / dist;
+  const uy = dy / dist;
+  const x1 = a.x + ux * (a.r + 3);
+  const y1 = a.y + uy * (a.r + 3);
+  const x2 = b.x - ux * (b.r + 3);
+  const y2 = b.y - uy * (b.r + 3);
+  const mx = (x1 + x2) / 2 - uy * sag;
+  const my = (y1 + y2) / 2 + ux * sag;
+  return `M ${x1} ${y1} Q ${mx} ${my} ${x2} ${y2}`;
 }
 
 function renderLabels() {
-  for (const { el, key } of state.laneCaps || []) el.textContent = t(key);
-  const byId = Object.fromEntries(NODES.map((n) => [n.id, n]));
   for (const [id, node] of Object.entries(state.nodes)) {
     const labelEl = node.g.querySelector('.mf-label');
     if (labelEl) labelEl.textContent = t(labelKey(id));
@@ -451,7 +339,7 @@ function fmtDur(ms) {
   return `${Math.round(ms / 1000)}s`;
 }
 
-/// Test helper: reset per-chip activity so visual assertions are
+/// Test helper: reset per-orb activity so visual assertions are
 /// deterministic across runs.
 export function resetModelFlowForTests() {
   state.inflight = {};
