@@ -273,8 +273,14 @@ const DICT = {
     convClear: '清空', convClearConfirm: '确定清空全部对话记录？此操作不可撤销。',
     convCleared: '对话记录已清空',
     // Agent hero + thinking panel + tools (SPEC §3.5 / §6 agent_step)
-    agentStateIdle: '待命', agentStateListening: '聆听中', agentStateThinking: '思考中',
-    agentStateAnswering: '回答中',
+    agentStateIdle: '待命', agentStateListening: '聆听中', agentStateThinking: '思考中', agentStateAnswering: '回答中',
+    // Model flow graph (SPEC §6 model_call, appendix A #50)
+    modelflowTitle: '模型流动图', modelflowDesc: '设备内部 AI 调用链实时视图——模型运行时节点波动、调用沿连线流动；多个模型并发时各自同时波动（仅模型名/时长，无内容）',
+    mfMic: '麦克风', mfCam: '摄像头', mfOut: '播报',
+    mfAsr: '听觉识别', mfDecision: '意图决策', mfLlm: '思考模型', mfTts: '语音播报',
+    mfCloud: '云端对话', mfVlm: '视觉理解', mfMeeting: '会议转写', mfSpeaker: '声纹识别',
+    mfAudioAi: '声音事件', mfAi: '目标检测', mfFace: '人脸识别', mfOcr: '文字识别',
+    mfRate: '近1分 {n} 次',
     capturePassive: '被动监听', captureActive: '主动采集', captureSelf: '设备自声',
     captureOthers: '人声',
     ambientTitle: '环境声', ambientHint: '来自本机麦克风的实时音量（仅幅度，无音频数据）',
@@ -616,6 +622,13 @@ const DICT = {
     // Agent hero + thinking panel + tools (SPEC §3.5 / §6 agent_step)
     agentStateIdle: 'Standby', agentStateListening: 'Listening', agentStateThinking: 'Thinking',
     agentStateAnswering: 'Answering',
+    // Model flow graph (SPEC §6 model_call, appendix A #50)
+    modelflowTitle: 'Model flow', modelflowDesc: 'Live view of the device\'s internal AI call chain — nodes ripple while their model runs, calls travel along the edges; concurrent models all ripple at once (names/durations only, never content)',
+    mfMic: 'Mic', mfCam: 'Camera', mfOut: 'Speak',
+    mfAsr: 'Hearing (ASR)', mfDecision: 'Decision', mfLlm: 'Thinking', mfTts: 'Speech',
+    mfCloud: 'Cloud chat', mfVlm: 'Vision (VLM)', mfMeeting: 'Meeting', mfSpeaker: 'Voiceprint',
+    mfAudioAi: 'Sound events', mfAi: 'Detection', mfFace: 'Face', mfOcr: 'OCR',
+    mfRate: '{n}/min',
     capturePassive: 'Passive', captureActive: 'Active capture', captureSelf: 'Device voice',
     captureOthers: 'Voice',
     ambientTitle: 'Ambient sound', ambientHint: 'Live mic level from this device (level only, never audio)',
@@ -769,4 +782,7 @@ export function applyLang() {
   });
   const v = $('stream-video');
   if (v) v.setAttribute('aria-label', t('videoAria'));
+  // Dynamically built widgets (SVG labels etc.) re-render on this event —
+  // the data-i18n scan above never sees their nodes.
+  window.dispatchEvent(new CustomEvent('langchange'));
 }
