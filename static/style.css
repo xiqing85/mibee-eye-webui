@@ -2306,7 +2306,7 @@ input[type="range"]::-moz-range-thumb {
 /* ── Model flow graph (SPEC §6 model_call, appendix A #50) — lane board v3 */
 .modelflow-wrap { overflow-x: auto; }
 #modelflow-svg {
-  display: block; width: 100%; max-width: 1280px; margin: 0 auto;
+  display: block; width: 100%; max-width: 1160px; margin: 0 auto;
   height: auto; min-width: 620px;
 }
 #modelflow-svg .mf-grid-dot { fill: var(--border); opacity: .45; }
@@ -2337,6 +2337,10 @@ input[type="range"]::-moz-range-thumb {
   transition: stroke .2s, stroke-opacity .2s, filter .2s;
 }
 #modelflow-svg .mf-node.anchor .core { stroke-dasharray: 5 3; fill: none; stroke-opacity: .8; }
+#modelflow-svg .mf-node.badge .core { stroke-width: 1; }
+#modelflow-svg .mf-node.badge .mf-code { font-size: 10.5px; letter-spacing: .08em; }
+#modelflow-svg .mf-node.badge .mf-label { font-size: 10px; }
+#modelflow-svg .mf-node.badge .mf-meta { font-size: 9px; }
 #modelflow-svg .mf-node.active .core {
   stroke: var(--accent); stroke-opacity: 1;
   filter: drop-shadow(0 0 6px var(--accent-bg));

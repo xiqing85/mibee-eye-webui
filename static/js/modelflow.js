@@ -13,28 +13,33 @@ const SVG_NS = 'http://www.w3.org/2000/svg';
 const REDUCED = typeof matchMedia === 'function'
   && matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-// Six columns × three lane rows. Chips are 104×42 (code + role inside).
-const COLS = [78, 236, 394, 552, 710, 868];
-const ROWS = [76, 204, 332];
-const CHIP_W = 104;
-const CHIP_H = 42;
+// Two-tier composition: the dialogue chain is the hero (full chips on
+// two rows), the always-on perception models are a compact status strip
+// (small badges, no trace spaghetti) — the card stays ~half the height
+// so it never dominates the assistant page.
+const CHAIN_Y = 64;
+const ALT_Y = 150;
+const STRIP_Y = 224;
+const CHIP_W = 96;
+const CHIP_H = 36;
+const BADGE_W = 84;
+const BADGE_H = 30;
 
 const NODES = [
-  { id: 'mic', x: COLS[0], y: ROWS[0], anchor: true, code: 'MIC' },
-  { id: 'voice.asr', x: COLS[1], y: ROWS[0], code: 'ASR' },
-  { id: 'decision', x: COLS[2], y: ROWS[0], code: 'DEC' },
-  { id: 'llm', x: COLS[3], y: ROWS[0], code: 'LLM' },
-  { id: 'tts', x: COLS[4], y: ROWS[0], code: 'TTS' },
-  { id: 'out', x: COLS[5], y: ROWS[0], anchor: true, code: 'OUT' },
-  { id: 'audio_ai', x: COLS[0], y: ROWS[1], code: 'SND' },
-  { id: 'speaker', x: COLS[1], y: ROWS[1], code: 'SPK' },
-  { id: 'meeting', x: COLS[2], y: ROWS[1], code: 'MTG' },
-  { id: 'cloud.chat', x: COLS[3], y: ROWS[1], code: 'CLD' },
-  { id: 'vlm', x: COLS[4], y: ROWS[1], code: 'VLM' },
-  { id: 'cam', x: COLS[0], y: ROWS[2], anchor: true, code: 'CAM' },
-  { id: 'ai', x: COLS[1], y: ROWS[2], code: 'DET' },
-  { id: 'face.recog', x: COLS[2], y: ROWS[2], code: 'FACE' },
-  { id: 'ocr', x: COLS[3], y: ROWS[2], code: 'OCR' },
+  { id: 'mic', x: 66, y: CHAIN_Y, w: CHIP_W, h: CHIP_H, anchor: true, code: 'MIC' },
+  { id: 'voice.asr', x: 220, y: CHAIN_Y, w: CHIP_W, h: CHIP_H, code: 'ASR' },
+  { id: 'decision', x: 374, y: CHAIN_Y, w: CHIP_W, h: CHIP_H, code: 'DEC' },
+  { id: 'llm', x: 528, y: CHAIN_Y, w: CHIP_W, h: CHIP_H, code: 'LLM' },
+  { id: 'tts', x: 682, y: CHAIN_Y, w: CHIP_W, h: CHIP_H, code: 'TTS' },
+  { id: 'out', x: 848, y: CHAIN_Y, w: CHIP_W, h: CHIP_H, anchor: true, code: 'OUT' },
+  { id: 'cloud.chat', x: 528, y: ALT_Y, w: CHIP_W, h: CHIP_H, code: 'CLD' },
+  { id: 'vlm', x: 682, y: ALT_Y, w: CHIP_W, h: CHIP_H, code: 'VLM' },
+  { id: 'audio_ai', x: 120, y: STRIP_Y, w: BADGE_W, h: BADGE_H, badge: true, code: 'SND' },
+  { id: 'speaker', x: 268, y: STRIP_Y, w: BADGE_W, h: BADGE_H, badge: true, code: 'SPK' },
+  { id: 'meeting', x: 416, y: STRIP_Y, w: BADGE_W, h: BADGE_H, badge: true, code: 'MTG' },
+  { id: 'ai', x: 564, y: STRIP_Y, w: BADGE_W, h: BADGE_H, badge: true, code: 'DET' },
+  { id: 'face.recog', x: 712, y: STRIP_Y, w: BADGE_W, h: BADGE_H, badge: true, code: 'FACE' },
+  { id: 'ocr', x: 860, y: STRIP_Y, w: BADGE_W, h: BADGE_H, badge: true, code: 'OCR' },
 ];
 
 // Orthogonal PCB traces. 'h'/'v' straight; 'elbow:<midY>' routes
@@ -47,21 +52,14 @@ const EDGES = [
   ['decision', 'llm', 'h'],
   ['llm', 'tts', 'h'],
   ['tts', 'out', 'h'],
-  ['mic', 'audio_ai', 'v'],
-  ['mic', 'speaker', 'elbow:134'],
-  ['mic', 'meeting', 'elbow:134'],
-  ['decision', 'cloud.chat', 'elbow:150'],
-  ['cloud.chat', 'tts', 'elbow:158'],
-  ['decision', 'vlm', 'elbow:166'],
-  ['cam', 'ai', 'h'],
-  ['ai', 'face.recog', 'h'],
-  ['cam', 'ocr', 'low:380'],
-  ['ai', 'vlm', 'elbow:270'],
+  ['decision', 'cloud.chat', 'elbow:107'],
+  ['cloud.chat', 'tts', 'elbow:120'],
+  ['decision', 'vlm', 'elbow:128'],
 ];
 
-// Solder pads where a bus branches, vias where traces cross.
-const PADS = [[157, 134]];
-const VIAS = [[552, 166]];
+// Via where the two alternate traces cross the chain column.
+const PADS = [];
+const VIAS = [[528, 120]];
 
 const MODEL_TO_NODE = {
   'voice.asr': 'voice.asr',
@@ -181,12 +179,14 @@ function ripple(id) {
   const now = performance.now();
   if (now - (state.lastRipple[id] || 0) < RIPPLE_MIN_GAP_MS) return;
   state.lastRipple[id] = now;
+  const w = Number(node.g.dataset.w || CHIP_W);
+  const h = Number(node.g.dataset.h || CHIP_H);
   const ring = document.createElementNS(SVG_NS, 'rect');
   ring.setAttribute('class', 'mf-ripple');
-  ring.setAttribute('x', Number(node.g.dataset.x) - CHIP_W / 2);
-  ring.setAttribute('y', Number(node.g.dataset.y) - CHIP_H / 2);
-  ring.setAttribute('width', CHIP_W);
-  ring.setAttribute('height', CHIP_H);
+  ring.setAttribute('x', Number(node.g.dataset.x) - w / 2);
+  ring.setAttribute('y', Number(node.g.dataset.y) - h / 2);
+  ring.setAttribute('width', w);
+  ring.setAttribute('height', h);
   ring.setAttribute('rx', 5);
   ring.addEventListener('animationend', () => ring.remove());
   svg.appendChild(ring);
@@ -271,25 +271,27 @@ function buildGraph() {
   }
   for (const n of NODES) {
     const g = document.createElementNS(SVG_NS, 'g');
-    g.setAttribute('class', `mf-node${n.anchor ? ' anchor' : ''}`);
+    g.setAttribute('class', `mf-node${n.anchor ? ' anchor' : ''}${n.badge ? ' badge' : ''}`);
     g.dataset.node = n.id;
     g.dataset.x = n.x;
     g.dataset.y = n.y;
+    g.dataset.w = n.w;
+    g.dataset.h = n.h;
     g.appendChild(chipFrame(n));
     const code = document.createElementNS(SVG_NS, 'text');
     code.setAttribute('x', n.x);
-    code.setAttribute('y', n.y - 2);
+    code.setAttribute('y', n.y + (n.badge ? 1 : -1));
     code.setAttribute('class', 'mf-code');
     code.textContent = n.code;
     g.appendChild(code);
     const label = document.createElementNS(SVG_NS, 'text');
     label.setAttribute('x', n.x);
-    label.setAttribute('y', n.y + 13);
+    label.setAttribute('y', n.y + n.h / 2 + 11);
     label.setAttribute('class', 'mf-label');
     g.appendChild(label);
     const meta = document.createElementNS(SVG_NS, 'text');
     meta.setAttribute('x', n.x);
-    meta.setAttribute('y', n.y + CHIP_H / 2 + 13);
+    meta.setAttribute('y', n.y + n.h / 2 + 23);
     meta.setAttribute('class', 'mf-meta');
     g.appendChild(meta);
     svg.appendChild(g);
@@ -302,18 +304,18 @@ function buildGraph() {
 function chipFrame(n) {
   const frag = document.createDocumentFragment();
   const rect = document.createElementNS(SVG_NS, 'rect');
-  rect.setAttribute('x', n.x - CHIP_W / 2);
-  rect.setAttribute('y', n.y - CHIP_H / 2);
-  rect.setAttribute('width', CHIP_W);
-  rect.setAttribute('height', CHIP_H);
+  rect.setAttribute('x', n.x - n.w / 2);
+  rect.setAttribute('y', n.y - n.h / 2);
+  rect.setAttribute('width', n.w);
+  rect.setAttribute('height', n.h);
   rect.setAttribute('rx', 5);
   rect.setAttribute('class', 'core');
   frag.appendChild(rect);
-  const b = 8; // bracket arm length
-  const x0 = n.x - CHIP_W / 2 - 4;
-  const x1 = n.x + CHIP_W / 2 + 4;
-  const y0 = n.y - CHIP_H / 2 - 4;
-  const y1 = n.y + CHIP_H / 2 + 4;
+  const b = n.badge ? 6 : 8; // bracket arm length
+  const x0 = n.x - n.w / 2 - 3;
+  const x1 = n.x + n.w / 2 + 3;
+  const y0 = n.y - n.h / 2 - 3;
+  const y1 = n.y + n.h / 2 + 3;
   const corners = [
     `M ${x0} ${y0 + b} V ${y0} H ${x0 + b}`,
     `M ${x1 - b} ${y0} H ${x1} V ${y0 + b}`,
@@ -335,22 +337,19 @@ function chipFrame(n) {
 function tracePath(a, b, shape) {
   const [ax, ay, bx, by] = [a.x, a.y, b.x, b.y];
   if (shape === 'h') {
-    const x1 = ax < bx ? ax + CHIP_W / 2 : ax - CHIP_W / 2;
-    const x2 = ax < bx ? bx - CHIP_W / 2 : bx + CHIP_W / 2;
+    const x1 = ax < bx ? ax + a.w / 2 : ax - a.w / 2;
+    const x2 = ax < bx ? bx - b.w / 2 : bx + b.w / 2;
     return `M ${x1} ${ay} H ${x2}`;
   }
   if (shape === 'v') {
-    const y1 = ay < by ? ay + CHIP_H / 2 : ay - CHIP_H / 2;
-    const y2 = ay < by ? by - CHIP_H / 2 : by + CHIP_H / 2;
+    const y1 = ay < by ? ay + a.h / 2 : ay - a.h / 2;
+    const y2 = ay < by ? by - b.h / 2 : by + b.h / 2;
     return `M ${ax} ${y1} V ${y2}`;
   }
   const midY = Number(shape.split(':')[1]);
-  if (shape.startsWith('low')) {
-    return `M ${ax} ${ay + CHIP_H / 2} V ${midY} H ${bx} V ${by + CHIP_H / 2}`;
-  }
   const fromTop = by < ay;
-  const y1 = fromTop ? ay - CHIP_H / 2 : ay + CHIP_H / 2;
-  const y2 = fromTop ? by + CHIP_H / 2 : by - CHIP_H / 2;
+  const y1 = fromTop ? ay - a.h / 2 : ay + a.h / 2;
+  const y2 = fromTop ? by + b.h / 2 : by - b.h / 2;
   return `M ${ax} ${y1} V ${midY} H ${bx} V ${y2}`;
 }
 
@@ -359,16 +358,15 @@ function tracePath(a, b, shape) {
 function lanes() {
   const frag = document.createDocumentFragment();
   const bands = [
-    [ROWS[0] - 44, 'mfLane1'],
-    [ROWS[1] - 44, 'mfLane2'],
-    [ROWS[2] - 44, 'mfLane3'],
+    [24, 176, 'mfLane1'],
+    [202, 74, 'mfLane3'],
   ];
-  for (const [y, key] of bands) {
+  for (const [y, h, key] of bands) {
     const rect = document.createElementNS(SVG_NS, 'rect');
     rect.setAttribute('x', 8);
     rect.setAttribute('y', y);
     rect.setAttribute('width', 904);
-    rect.setAttribute('height', 116);
+    rect.setAttribute('height', h);
     rect.setAttribute('rx', 8);
     rect.setAttribute('class', 'mf-lane');
     frag.appendChild(rect);
