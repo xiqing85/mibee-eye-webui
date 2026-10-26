@@ -525,6 +525,21 @@ with sync_playwright() as p:
     # call-chain topology. Deterministic via the sse test seam; ambient
     # mock broadcasts keep counters moving, so reads use distinguishing
     # content (node ids, classes) rather than absolute counts. ─────────
+    # ── Column alignment (the original complaint): the flow card sits in
+    # the SAME centered content column as the hero and the chat grid. ──
+    cols = pg.evaluate("""() => {
+      const r = (el) => { const b = el.getBoundingClientRect();
+        return { x: Math.round(b.x), w: Math.round(b.width) }; };
+      return { hero: r(document.getElementById('agent-hero')),
+               flow: r(document.getElementById('modelflow-card')),
+               grid: r(document.querySelector('.assistant-grid')) };
+    }""")
+    check("flow: card left edge aligns with the hero",
+          abs(cols["flow"]["x"] - cols["hero"]["x"]) <= 1, str(cols))
+    check("flow: card width matches the hero column",
+          abs(cols["flow"]["w"] - cols["hero"]["w"]) <= 1, str(cols))
+    check("flow: grid aligns with the same column",
+          abs(cols["grid"]["x"] - cols["hero"]["x"]) <= 2, str(cols))
     check("flow: card visible (observability.model_flow)",
           pg.locator("#modelflow-card:not(.hidden)").is_visible())
     check("flow: hero waveform untouched by the flow card",
