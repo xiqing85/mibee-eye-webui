@@ -537,34 +537,43 @@ with sync_playwright() as p:
       // Reset determinism, then run one hear → decide sequence.
       const mf = await import('/js/modelflow.js');
       mf.resetModelFlowForTests();
-      m.dispatchTestEvent('model_call', {model:'voice.asr', variant:'paraformer',
+      m.dispatchTestEvent('model_call', {model:'voice.asr', variant:'paraformer-trilingual',
         phase:'start', timestamp_ms: Date.now()});
       const asrActive = !!node('voice.asr')?.classList.contains('active');
       const ripple = svg.querySelectorAll('.mf-ripple').length;
       const edgeFlowing = svg.querySelectorAll('.mf-edge.flowing').length;
       const pulse = svg.querySelectorAll('.mf-pulse').length;
-      m.dispatchTestEvent('model_call', {model:'voice.asr', variant:'paraformer',
+      const brackets = node('voice.asr')?.querySelectorAll('.mf-bracket').length || 0;
+      const asrVariant = node('voice.asr')?.querySelector('.mf-variant')?.textContent || '';
+      m.dispatchTestEvent('model_call', {model:'voice.asr', variant:'paraformer-trilingual',
         phase:'end', duration_ms: 640, ok: true, timestamp_ms: Date.now()});
-      m.dispatchTestEvent('model_call', {model:'llm', variant:'qwen3-4b',
+      m.dispatchTestEvent('model_call', {model:'llm', variant:'models/llm/Qwen3-4B-Instruct-2507-Q4_K_M.gguf',
         phase:'start', timestamp_ms: Date.now()});
       m.dispatchTestEvent('model_call', {model:'totally.unknown', variant:'x',
         phase:'start', timestamp_ms: Date.now()});
-      return {asrActive, ripple, edgeFlowing, pulse,
+      return {asrActive, ripple, edgeFlowing, pulse, brackets, asrVariant,
               asrIdle: !node('voice.asr')?.classList.contains('active'),
               llmActive: !!node('llm')?.classList.contains('active'),
               asrSub: node('voice.asr')?.querySelector('.mf-sub')?.textContent || '',
+              llmVariant: node('llm')?.querySelector('.mf-variant')?.textContent || '',
               labels: node('llm')?.querySelector('.mf-label')?.textContent || ''};
     }""")
-    check("flow: start activates the node", flow_state["asrActive"])
+    check("flow: start activates the chip", flow_state["asrActive"])
     check("flow: start spawns a ripple ring", flow_state["ripple"] >= 1)
-    check("flow: incoming edge highlights on start",
+    check("flow: incoming trace highlights on start",
           flow_state["edgeFlowing"] >= 1)
-    check("flow: a pulse travels the edge", flow_state["pulse"] >= 1)
+    check("flow: a data packet travels the trace", flow_state["pulse"] >= 1)
+    check("flow: HUD corner brackets rendered",
+          flow_state["brackets"] == 4, str(flow_state["brackets"]))
+    check("flow: chip shows the concrete model variant",
+          flow_state["asrVariant"] == "paraformer", flow_state["asrVariant"])
+    check("flow: long variant collapses to the model name",
+          flow_state["llmVariant"] == "Qwen3-4B", flow_state["llmVariant"])
     check("flow: end deactivates when no longer inflight", flow_state["asrIdle"])
     check("flow: concurrent models stay active independently",
           flow_state["llmActive"])
-    check("flow: counter shows rate + last duration",
-          "近1分" in flow_state["asrSub"] and "640" in flow_state["asrSub"],
+    check("flow: counter shows count + last duration",
+          "n=" in flow_state["asrSub"] and "640ms" in flow_state["asrSub"],
           flow_state["asrSub"])
     check("flow: node labels localized (zh)", "思考模型" in flow_state["labels"],
           flow_state["labels"])
