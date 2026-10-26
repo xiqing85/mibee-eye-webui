@@ -1,10 +1,9 @@
 // Model flow graph (SPEC §6 `model_call` + §3.1 `observability.model_flow`,
-// appendix A #50): a live circuit-board view of the device's AI pipeline.
-// Chips light up while their model runs, data pulses travel the traces,
-// concurrent models all animate at once. Each chip shows its concrete
-// model variant (live — an elastic tier swap renames the chip on the
-// next call). Ambient detectors (~1-2 Hz) keep firing; the visuals are
-// throttled per chip, the counters stay honest.
+// appendix A #50): a lane-structured circuit board of the device's AI
+// pipeline — chips with the mono code + localized role inside, one meta
+// line under each (model variant · rate · duration), a distribution bus
+// per source, data packets on the traces. Concurrent models all animate
+// at once; an elastic tier swap renames the chip on the next call.
 
 import { store } from './store.js';
 import { t } from './i18n.js';
@@ -14,13 +13,11 @@ const SVG_NS = 'http://www.w3.org/2000/svg';
 const REDUCED = typeof matchMedia === 'function'
   && matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-// Strict grid: six columns × three rows. Row 0 is the dialogue chain,
-// row 1 the mic-fed extras and the chat alternates, row 2 the camera-fed
-// perception band. Chips are 88×34, centered on the grid points.
-const COLS = [70, 230, 390, 550, 710, 880];
-const ROWS = [70, 190, 310];
-const CHIP_W = 88;
-const CHIP_H = 34;
+// Six columns × three lane rows. Chips are 104×42 (code + role inside).
+const COLS = [78, 236, 394, 552, 710, 868];
+const ROWS = [76, 204, 332];
+const CHIP_W = 104;
+const CHIP_H = 42;
 
 const NODES = [
   { id: 'mic', x: COLS[0], y: ROWS[0], anchor: true, code: 'MIC' },
@@ -40,8 +37,10 @@ const NODES = [
   { id: 'ocr', x: COLS[3], y: ROWS[2], code: 'OCR' },
 ];
 
-// Trace shapes: 'h'/'v' are straight grid segments; 'elbow:<midY>' is the
-// PCB vertical-horizontal-vertical route between rows.
+// Orthogonal PCB traces. 'h'/'v' straight; 'elbow:<midY>' routes
+// bottom(src) → midY → top(dst) — sharing a midY merges the overlapping
+// segments into one visual bus; 'low:<midY>' routes below the
+// destination row and rises into its bottom edge.
 const EDGES = [
   ['mic', 'voice.asr', 'h'],
   ['voice.asr', 'decision', 'h'],
@@ -49,21 +48,20 @@ const EDGES = [
   ['llm', 'tts', 'h'],
   ['tts', 'out', 'h'],
   ['mic', 'audio_ai', 'v'],
-  ['mic', 'speaker', 'elbow:146'],
-  ['mic', 'meeting', 'elbow:162'],
-  ['decision', 'cloud.chat', 'elbow:135'],
-  ['cloud.chat', 'tts', 'elbow:135'],
-  ['decision', 'vlm', 'elbow:150'],
+  ['mic', 'speaker', 'elbow:134'],
+  ['mic', 'meeting', 'elbow:134'],
+  ['decision', 'cloud.chat', 'elbow:150'],
+  ['cloud.chat', 'tts', 'elbow:158'],
+  ['decision', 'vlm', 'elbow:166'],
   ['cam', 'ai', 'h'],
   ['ai', 'face.recog', 'h'],
-  ['cam', 'ocr', 'h'],
-  ['ai', 'vlm', 'elbow:255'],
+  ['cam', 'ocr', 'low:366'],
+  ['ai', 'vlm', 'elbow:270'],
 ];
 
-// PCB vias where two traces cross (decision→vlm's horizontal crosses the
-// decision→cloud.chat vertical): a ring keeps the crossing readable
-// instead of looking like a junction.
-const VIAS = [[550, 150]];
+// Solder pads where a bus branches, vias where traces cross.
+const PADS = [[157, 134]];
+const VIAS = [[552, 166]];
 
 const MODEL_TO_NODE = {
   'voice.asr': 'voice.asr',
@@ -88,7 +86,7 @@ const INFLIGHT_RIPPLE_MS = 1400;  // long calls keep pulsing while active
 
 const state = {
   built: false,
-  nodes: {},        // id → { g, codeEl, labelEl, varEl, subEl }
+  nodes: {},        // id → { g, metaEl }
   edges: {},        // 'src>dst' → path element
   inflight: {},     // id → count
   window: {},       // id → [timestamps] rolling 60s
@@ -96,6 +94,7 @@ const state = {
   variant: {},      // id → concrete model name (live)
   lastRipple: {},   // id → ms of last ripple spawn
   rippleGen: {},    // id → generation (stops re-ripple loops)
+  laneCaps: [],     // [{el, key}] lane band captions
 };
 
 export function initModelFlow() {
@@ -145,7 +144,7 @@ export function handleModelCall(ev) {
     flowInto(id);
     if (state.inflight[id] > 0) scheduleInflightRipple(id);
   }
-  renderSub(id);
+  renderMeta(id);
 }
 
 /// Collapse a variant string to the concrete model name shown on the
@@ -157,12 +156,12 @@ function variantShort(variant) {
   let v = String(variant).split('/').pop() || String(variant);
   v = v.replace(/\.(gguf|onnx|bin|int8|q8_0|q4_k_m)$/i, '');
   v = v.split(/-[Ii]nstruct/)[0];
-  if (v.length <= 12) return v;
+  if (v.length <= 14) return v;
   const cut = (sep) => {
     const i = v.indexOf(sep);
-    return i >= 4 && i <= 12 ? v.slice(0, i) : null;
+    return i >= 4 && i <= 14 ? v.slice(0, i) : null;
   };
-  return cut('-') || cut('_') || v.slice(0, 12);
+  return cut('-') || cut('_') || v.slice(0, 14);
 }
 
 function scheduleInflightRipple(id) {
@@ -188,7 +187,7 @@ function ripple(id) {
   ring.setAttribute('y', Number(node.g.dataset.y) - CHIP_H / 2);
   ring.setAttribute('width', CHIP_W);
   ring.setAttribute('height', CHIP_H);
-  ring.setAttribute('rx', 4);
+  ring.setAttribute('rx', 5);
   ring.addEventListener('animationend', () => ring.remove());
   svg.appendChild(ring);
 }
@@ -199,7 +198,7 @@ function flowInto(id) {
     const path = state.edges[`${src}>${dst}`];
     if (!path) continue;
     path.classList.add('flowing');
-    setTimeout(() => path.classList.remove('flowing'), 650);
+    setTimeout(() => path.classList.remove('flowing'), 700);
     if (!REDUCED) travelPacket(path);
   }
 }
@@ -212,19 +211,19 @@ function travelPacket(path) {
   const len = path.getTotalLength();
   const packet = document.createElementNS(SVG_NS, 'rect');
   packet.setAttribute('class', 'mf-pulse');
-  packet.setAttribute('width', '9');
-  packet.setAttribute('height', '2.4');
+  packet.setAttribute('width', '10');
+  packet.setAttribute('height', '2.6');
   packet.setAttribute('rx', '1');
   svg.appendChild(packet);
   const t0 = performance.now();
-  const DUR = 460;
+  const DUR = 480;
   const step = (now) => {
     const k = Math.min(1, (now - t0) / DUR);
     const l = k * len;
     const p = path.getPointAtLength(l);
     const q = path.getPointAtLength(Math.min(len, l + 1));
     const a = (Math.atan2(q.y - p.y, q.x - p.x) * 180) / Math.PI;
-    packet.setAttribute('transform', `translate(${p.x - 4.5} ${p.y - 1.2}) rotate(${a.toFixed(1)} 4.5 1.2)`);
+    packet.setAttribute('transform', `translate(${p.x - 5} ${p.y - 1.3}) rotate(${a.toFixed(1)} 5 1.3)`);
     packet.setAttribute('opacity', String(0.95 - k * 0.35));
     if (k < 1) requestAnimationFrame(step);
     else packet.remove();
@@ -232,15 +231,16 @@ function travelPacket(path) {
   requestAnimationFrame(step);
 }
 
-/// Chip body: 88×34 rounded rect with the code tag inside, corner
-/// brackets that appear on activity, and three annotation lines below —
-/// localized name, concrete variant (live), counter/duration.
+/// Chip: 104×42 rect with two lines inside (mono code + localized role)
+/// and ONE meta line below (variant · rate · duration) — a uniform
+/// rhythm across all chips.
 function buildGraph() {
   if (state.built) return;
   const svg = $('modelflow-svg');
   if (!svg) return;
   state.built = true;
   svg.appendChild(dotGrid());
+  svg.appendChild(lanes());
 
   const byId = Object.fromEntries(NODES.map((n) => [n.id, n]));
   for (const [src, dst, shape] of EDGES) {
@@ -251,6 +251,15 @@ function buildGraph() {
     path.setAttribute('class', 'mf-edge');
     svg.appendChild(path);
     state.edges[`${src}>${dst}`] = path;
+  }
+  for (const [px, py] of PADS) {
+    const pad = document.createElementNS(SVG_NS, 'rect');
+    pad.setAttribute('x', px - 2.6);
+    pad.setAttribute('y', py - 2.6);
+    pad.setAttribute('width', 5.2);
+    pad.setAttribute('height', 5.2);
+    pad.setAttribute('class', 'mf-pad');
+    svg.appendChild(pad);
   }
   for (const [vx, vy] of VIAS) {
     const via = document.createElementNS(SVG_NS, 'circle');
@@ -269,27 +278,22 @@ function buildGraph() {
     g.appendChild(chipFrame(n));
     const code = document.createElementNS(SVG_NS, 'text');
     code.setAttribute('x', n.x);
-    code.setAttribute('y', n.y + 4);
+    code.setAttribute('y', n.y - 2);
     code.setAttribute('class', 'mf-code');
     code.textContent = n.code;
     g.appendChild(code);
     const label = document.createElementNS(SVG_NS, 'text');
     label.setAttribute('x', n.x);
-    label.setAttribute('y', n.y + CHIP_H / 2 + 12);
+    label.setAttribute('y', n.y + 13);
     label.setAttribute('class', 'mf-label');
     g.appendChild(label);
-    const variant = document.createElementNS(SVG_NS, 'text');
-    variant.setAttribute('x', n.x);
-    variant.setAttribute('y', n.y + CHIP_H / 2 + 24);
-    variant.setAttribute('class', 'mf-variant');
-    g.appendChild(variant);
-    const sub = document.createElementNS(SVG_NS, 'text');
-    sub.setAttribute('x', n.x);
-    sub.setAttribute('y', n.y + CHIP_H / 2 + 36);
-    sub.setAttribute('class', 'mf-sub');
-    g.appendChild(sub);
+    const meta = document.createElementNS(SVG_NS, 'text');
+    meta.setAttribute('x', n.x);
+    meta.setAttribute('y', n.y + CHIP_H / 2 + 13);
+    meta.setAttribute('class', 'mf-meta');
+    g.appendChild(meta);
     svg.appendChild(g);
-    state.nodes[n.id] = { g, label, variant, sub };
+    state.nodes[n.id] = { g, meta };
   }
   renderLabels();
 }
@@ -302,10 +306,10 @@ function chipFrame(n) {
   rect.setAttribute('y', n.y - CHIP_H / 2);
   rect.setAttribute('width', CHIP_W);
   rect.setAttribute('height', CHIP_H);
-  rect.setAttribute('rx', 4);
+  rect.setAttribute('rx', 5);
   rect.setAttribute('class', 'core');
   frag.appendChild(rect);
-  const b = 7; // bracket arm length
+  const b = 8; // bracket arm length
   const x0 = n.x - CHIP_W / 2 - 4;
   const x1 = n.x + CHIP_W / 2 + 4;
   const y0 = n.y - CHIP_H / 2 - 4;
@@ -325,8 +329,9 @@ function chipFrame(n) {
   return frag;
 }
 
-/// PCB trace geometry: 'h'/'v' are straight segments between chip
-/// borders; 'elbow:<midY>' routes bottom(src) → midY → top/bottom(dst).
+/// PCB trace geometry: 'h'/'v' straight between chip borders;
+/// 'elbow:<midY>' bottom(src) → midY → top(dst); 'low:<midY>' routes
+/// below the destination row and rises into its bottom edge.
 function tracePath(a, b, shape) {
   const [ax, ay, bx, by] = [a.x, a.y, b.x, b.y];
   if (shape === 'h') {
@@ -340,10 +345,42 @@ function tracePath(a, b, shape) {
     return `M ${ax} ${y1} V ${y2}`;
   }
   const midY = Number(shape.split(':')[1]);
+  if (shape.startsWith('low')) {
+    return `M ${ax} ${ay + CHIP_H / 2} V ${midY} H ${bx} V ${by + CHIP_H / 2}`;
+  }
   const fromTop = by < ay;
   const y1 = fromTop ? ay - CHIP_H / 2 : ay + CHIP_H / 2;
   const y2 = fromTop ? by + CHIP_H / 2 : by - CHIP_H / 2;
   return `M ${ax} ${y1} V ${midY} H ${bx} V ${y2}`;
+}
+
+/// Three lane bands (dialogue / audio & parallel / vision) — the board's
+/// structure, so the chips sit in a designed panel instead of a void.
+function lanes() {
+  const frag = document.createDocumentFragment();
+  const bands = [
+    [ROWS[0] - 44, 'mfLane1'],
+    [ROWS[1] - 44, 'mfLane2'],
+    [ROWS[2] - 44, 'mfLane3'],
+  ];
+  for (const [y, key] of bands) {
+    const rect = document.createElementNS(SVG_NS, 'rect');
+    rect.setAttribute('x', 8);
+    rect.setAttribute('y', y);
+    rect.setAttribute('width', 904);
+    rect.setAttribute('height', 116);
+    rect.setAttribute('rx', 8);
+    rect.setAttribute('class', 'mf-lane');
+    frag.appendChild(rect);
+    const cap = document.createElementNS(SVG_NS, 'text');
+    cap.setAttribute('x', 16);
+    cap.setAttribute('y', y + 15);
+    cap.setAttribute('class', 'mf-lane-cap');
+    frag.appendChild(cap);
+    state.laneCaps = state.laneCaps || [];
+    state.laneCaps.push({ el: cap, key });
+  }
+  return frag;
 }
 
 /// Subtle dot-grid background — the board the chips sit on.
@@ -369,15 +406,19 @@ function dotGrid() {
 }
 
 function renderLabels() {
+  for (const { el, key } of state.laneCaps || []) el.textContent = t(key);
   const byId = Object.fromEntries(NODES.map((n) => [n.id, n]));
   for (const [id, node] of Object.entries(state.nodes)) {
-    node.label.textContent = t(byId[id].anchor ? byId[id].code === 'MIC' ? 'mfMic' : byId[id].code === 'CAM' ? 'mfCam' : 'mfOut' : labelKey(id));
-    renderSub(id);
+    const labelEl = node.g.querySelector('.mf-label');
+    if (labelEl) labelEl.textContent = t(labelKey(id));
+    renderMeta(id);
   }
 }
 
 function labelKey(id) {
   return {
+    'mic': 'mfMic',
+    'out': 'mfOut',
     'voice.asr': 'mfAsr',
     'decision': 'mfDecision',
     'llm': 'mfLlm',
@@ -393,16 +434,16 @@ function labelKey(id) {
   }[id] || id;
 }
 
-function renderSub(id) {
+function renderMeta(id) {
   const node = state.nodes[id];
   if (!node) return;
   const recent = (state.window[id] || []).filter((ts) => Date.now() - ts < 60_000);
   state.window[id] = recent;
-  node.variant.textContent = state.variant[id] || '';
   const parts = [];
+  if (state.variant[id]) parts.push(state.variant[id]);
   if (recent.length) parts.push(`n=${recent.length}`);
   if (state.lastDur[id] != null) parts.push(fmtDur(state.lastDur[id]));
-  node.sub.textContent = parts.join(' ');
+  node.meta.textContent = parts.join(' · ');
 }
 
 function fmtDur(ms) {
@@ -420,7 +461,6 @@ export function resetModelFlowForTests() {
   state.variant = {};
   for (const node of Object.values(state.nodes)) {
     node.g.classList.remove('active', 'errored');
-    node.sub.textContent = '';
-    node.variant.textContent = '';
+    node.meta.textContent = '';
   }
 }
