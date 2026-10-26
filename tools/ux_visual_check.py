@@ -583,6 +583,61 @@ with sync_playwright() as p:
           flow_state["asrSub"])
     check("flow: node labels localized (zh)", "思考模型" in flow_state["labels"],
           flow_state["labels"])
+    # v6 wiring + ambient current + strip meta visibility + light theme:
+    # every orb participates in a link, links flow while idle, the
+    # perception strip's meta line stays inside the viewBox (v5 clipped
+    # it), and light-theme text uses the real theme variable (v5 fell
+    # back to near-white). ─────────────────────────────────────────────
+    flow_v6 = pg.evaluate("""async () => {
+      const svg = document.getElementById('modelflow-svg');
+      const m = await import('/js/sse.js');
+      const node = (id) => svg.querySelector(`g[data-node="${id}"]`);
+      const wired = new Set();
+      svg.querySelectorAll('.mf-edge').forEach((p) => {
+        wired.add(p.dataset.src); wired.add(p.dataset.dst);
+      });
+      const all = [...svg.querySelectorAll('.mf-node')].map((g) => g.dataset.node);
+      // Perception-strip meta: fire one ai detection call, then the meta
+      // line must be non-empty AND inside the 340-unit canvas.
+      m.dispatchTestEvent('model_call', {model:'ai', variant:'nanodet-m',
+        phase:'start', timestamp_ms: Date.now()});
+      m.dispatchTestEvent('model_call', {model:'ai',
+        phase:'end', duration_ms: 82, ok: true, timestamp_ms: Date.now()});
+      const detMeta = node('ai')?.querySelector('.mf-meta');
+      const bb = detMeta?.getBBox();
+      // Ambient current: idle links must still carry travelling dots.
+      await new Promise((r) => setTimeout(r, 1900));
+      const ambient = svg.querySelectorAll('.mf-packet').length;
+      // Light theme: orb code text must resolve to the light body color,
+      // not the dark-theme near-white fallback (the v5 bug).
+      const root = document.documentElement;
+      const prev = root.dataset.theme;
+      root.dataset.theme = 'light';
+      await new Promise((r) => setTimeout(r, 420));
+      const codeFill = getComputedStyle(node('llm').querySelector('.mf-code')).fill;
+      root.dataset.theme = prev;
+      return {nodes: all.length, edges: svg.querySelectorAll('.mf-edge').length,
+              unwired: all.filter((id) => !wired.has(id)),
+              detMeta: detMeta?.textContent || '',
+              metaBottom: bb ? bb.y + bb.height : 0,
+              ambient, codeFill};
+    }""")
+    check("flow: 15 orbs (MIC/CAM source anchors + chain)",
+          flow_v6["nodes"] == 15, str(flow_v6["nodes"]))
+    check("flow: 16 links lace every part of the pipeline",
+          flow_v6["edges"] == 16, str(flow_v6["edges"]))
+    check("flow: every orb is wired (no orphan nodes)",
+          len(flow_v6["unwired"]) == 0, str(flow_v6["unwired"]))
+    check("flow: strip meta shows variant + count + duration",
+          "n=" in flow_v6["detMeta"] and "nanodet" in flow_v6["detMeta"]
+          and __import__("re").search(r"\d+(ms|s)$", flow_v6["detMeta"]),
+          flow_v6["detMeta"])
+    check("flow: strip meta inside the canvas (v5 clipped it)",
+          0 < flow_v6["metaBottom"] <= 340, str(flow_v6["metaBottom"]))
+    check("flow: ambient current flows on idle links",
+          flow_v6["ambient"] >= 3, str(flow_v6["ambient"]))
+    check("flow: light theme renders dark text (v5 near-white bug)",
+          flow_v6["codeFill"] == "rgb(23, 34, 46)", flow_v6["codeFill"])
     shot(pg, "15d-model-flow", full=False)
     # Clear-all with confirmation (SPEC §3.4 DELETE): cancel keeps rows,
     # confirm empties the chat history (restored turns + local ones).
@@ -913,12 +968,27 @@ with sync_playwright() as p:
     amb_now = pg.evaluate("document.getElementById('ambient-waveform').toDataURL().length")
     check("ambient: canvas paints on audio_level sample",
           amb_now > 0 and amb_now != amb_before)
-    check("ambient: level readout updates",
-          pg.locator("#ambient-level").inner_text().strip() == "55%")
-    amb_tag = pg.locator("#ambient-capture")
-    check("ambient: passive capture tag shows",
-          amb_tag.is_visible() and "active" not in
-          amb_tag.evaluate("el => el.className"))
+    # The mock's periodic audio_level bursts (no capture_mode) can land
+    # inside any fixed read window and overwrite the readout (phase race
+    # surfaced 2026-10-26) — re-dispatch our sample and watch the element
+    # for a stretch instead of reading once.
+    amb_seen = pg.evaluate("""() => new Promise((res) => {
+      window.sse.dispatchTestEvent('audio_level',
+        {level: 0.55, timestamp: Date.now(), capture_mode: 'passive', source: 'ambient'});
+      const lvl = document.getElementById('ambient-level');
+      const tag = document.getElementById('ambient-capture');
+      let seenLvl = lvl.textContent.trim() === '55%';
+      let seenTag = !!tag && tag.offsetParent !== null
+                    && !tag.className.includes('active');
+      const iv = setInterval(() => {
+        if (lvl.textContent.trim() === '55%') seenLvl = true;
+        if (tag && tag.offsetParent !== null
+            && !tag.className.includes('active')) seenTag = true;
+      }, 25);
+      setTimeout(() => { clearInterval(iv); res({seenLvl, seenTag}); }, 500);
+    })""")
+    check("ambient: level readout updates", amb_seen["seenLvl"])
+    check("ambient: passive capture tag shows", amb_seen["seenTag"])
     # Restore the full capabilities document via a reload (chat and other
     # hide-only gates come back with the fresh app boot).
     pg.reload()
