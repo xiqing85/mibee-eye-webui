@@ -673,6 +673,28 @@ with sync_playwright() as p:
     pg.wait_for_timeout(150)
     check("flow: help closes via Escape",
           pg.locator("#mf-help-overlay.hidden").count() == 1)
+    # ── First-screen name prefill (SPEC §4.9 /api/models → orb seeds):
+    # applyModelCatalog maps catalog capabilities to nodes deterministically
+    # (no race with ambient broadcasts); real calls still override later.
+    prefill = pg.evaluate("""async () => {
+      const mf = await import('/js/modelflow.js');
+      mf.resetModelFlowForTests();
+      mf.applyModelCatalog({capabilities: [
+        {id: 'llm', active: 'Qwen3-4B-Instruct-2507-Q4_K_M'},
+        {id: 'voice.asr', active: 'paraformer-trilingual'},
+        {id: 'tts.zh', active: 'melo'},
+        {id: 'totally.other', active: 'zzz'},
+      ]});
+      const svg = document.getElementById('modelflow-svg');
+      const meta = (id) => svg.querySelector(`g[data-node="${id}"] .mf-meta`).textContent;
+      return {llm: meta('llm'), asr: meta('voice.asr'), tts: meta('tts'),
+              ai: meta('ai')};
+    }""")
+    check("flow: catalog prefill seeds orb names on first screen",
+          "Qwen3-4B" in prefill["llm"] and "paraformer" in prefill["asr"]
+          and prefill["tts"] == "melo", str(prefill))
+    check("flow: unknown catalog caps ignored (fail-open)",
+          prefill["ai"] == "", str(prefill))
     shot(pg, "15d-model-flow", full=False)
     # Clear-all with confirmation (SPEC §3.4 DELETE): cancel keeps rows,
     # confirm empties the chat history (restored turns + local ones).
