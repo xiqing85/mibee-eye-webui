@@ -1777,6 +1777,13 @@ input[type="range"]::-moz-range-thumb {
 .chat-card-head { display: flex; align-items: center; gap: 10px; }
 .chat-card-head h3 { flex: 1; }
 .chat-toolbar { display: flex; align-items: center; gap: 10px; }
+/* Model-routing selector in the chat card head (design §6, M5). */
+.engine-select {
+  font: inherit; font-size: 12px; padding: 2px 6px; border-radius: 6px;
+  border: 1px solid var(--border); background: var(--card); color: var(--text-primary);
+  cursor: pointer;
+}
+.engine-select:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .chat-count { font-size: 11px; color: var(--text-faint); }
 .chat-log {
   height: clamp(240px, calc(100vh - var(--nav-h) - 380px), 460px);

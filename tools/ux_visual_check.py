@@ -351,6 +351,32 @@ with sync_playwright() as p:
     pg.wait_for_timeout(600)
     check("assistant: view active", pg.locator("#view-assistant.active").count() == 1)
     check("assistant: chat card visible", pg.locator("#chat-log").is_visible())
+    # Model-routing switch (design §6, M5): the selector surfaces only
+    # when the device exposes the routing API (mock does), starts on
+    # auto, and a switch both PUTs and round-trips through the state.
+    eng = pg.locator("#chat-engine")
+    check("engine: selector visible", eng.is_visible() and not eng.get_attribute("class").__contains__("hidden"))
+    check("engine: three options",
+          eng.locator("option").count() == 3)
+    check("engine: starts auto", eng.input_value() == "auto")
+    pg.select_option("#chat-engine", "local")
+    pg.wait_for_timeout(700)
+    routed = pg.evaluate("fetch('/api/models/routing').then(r => r.json())")
+    check("engine: local applied to chat",
+          routed["data"]["chat"]["provider"] == "local")
+    check("engine: vision stays local",
+          routed["data"]["vision"]["provider"] == "local")
+    pg.select_option("#chat-engine", "cloud")
+    pg.wait_for_timeout(700)
+    routed = pg.evaluate("fetch('/api/models/routing').then(r => r.json())")
+    check("engine: cloud flips vision too",
+          routed["data"]["vision"]["provider"] == "cloud" and
+          routed["data"]["chat"]["provider"] == "cloud")
+    pg.reload(); pg.wait_for_timeout(900)
+    pg.click("#nav .nav-tab[data-view=assistant]"); pg.wait_for_timeout(500)
+    check("engine: cloud reflected after reload",
+          pg.locator("#chat-engine").input_value() == "cloud")
+    pg.select_option("#chat-engine", "auto"); pg.wait_for_timeout(500)
     check("assistant: speakers card in view",
           pg.locator("#view-assistant #speakers-card").count() == 1 and
           pg.locator("#view-assistant #faces-card").count() == 1)

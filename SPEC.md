@@ -433,6 +433,8 @@ MSE 流细则：init segment（`ftyp`+`moov`）只发一次，随后每访问单
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | GET | `/api/models` | `{"dir":"models","capabilities":[…],"tasks":[…]}`。每个 capability：`{"id","label","apply":"restart"\|"immediate","active":"<model-id>"\|null,"models":[…]}`；每个 model：`{"id","name","size_bytes","languages":[…],"license","notes","installed":bool,"active":bool,"downloadable":bool}`。`installed` = 全部文件就位（按目录 size 校验）；`downloadable:false` = 设备未提供下载源（仅可删除已装文件，不可下载/重下） |
+| GET | `/api/models/routing` | **模型路由（2026-10-31 加法）**：`{"chat":{"provider","fallback"},"vision":…,"asr":…,"tts":…}`，provider/fallback ∈ `local`\|`cloud`。对话与看图的在线/本地走向（HTTP 与语音两路同源；`effective` 语义：cloud 主选但云不可用时落 fallback）。TOML `[models.<cap>]` 播种启动值，热改后持久化 settings 袋（重启保留）。Pi 产品无此端点（前端以端点缺失判定并隐藏切换器） |
+| PUT | `/api/models/routing` | 部分合并：`{"chat":{"provider":"local"}}` 只动该能力；未知能力/非法值 → 400。`applied:"immediate"`（HTTP chat 路由与语音桥共享同一把锁） |
 | POST | `/api/models/{capability}/{model_id}/download` | 创建异步下载任务 → `202 {"task":<task 对象>}`。未知 capability/model → 404；已安装 → 409（body `{"force":true}` 强制重下）；磁盘余量不足（< 1.1×size_bytes）→ 507 `insufficient_storage`；同模型已有进行中任务 → 409。下载按文件顺序进行，断点续传（HTTP Range，`.part` 临时文件），完成后按 size + （有则）sha256 校验，失败不改 `installed`、不留成品 |
 | GET | `/api/models/tasks` | `{"tasks":[…]}`；task 对象：`{"task_id","capability","model_id","model_name","status":"downloading"\|"verifying"\|"done"\|"failed"\|"canceled","progress":0..1,"downloaded_bytes","total_bytes","error"?}` |
 | POST | `/api/models/tasks/{task_id}/cancel` | 取消进行中任务（`.part` 文件保留供续传）→ `200 {"status":"canceled"}`；已结束任务 → 409 |

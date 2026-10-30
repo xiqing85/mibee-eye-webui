@@ -114,6 +114,12 @@ STATE = {
     "model_active": {"llm": "mock-llm-4b", "vlm": "mock-vlm-2b",
                      "voice.asr": "mock-asr-tri", "ai": "nanodet-plus-m-320"},
     "model_tasks": {},
+        "models_routing": {
+            "chat": {"provider": "cloud", "fallback": "local"},
+            "vision": {"provider": "local", "fallback": "local"},
+            "asr": {"provider": "local", "fallback": "local"},
+            "tts": {"provider": "local", "fallback": "local"},
+        },
     "model_task_seq": 0,
     # Online AI (SPEC §4.10). The key is never returned — only api_key_set.
     "cloud": {"provider": "off", "api_key": "", "chat_model": "openai/gpt-4o-mini",
@@ -909,6 +915,17 @@ class Handler(BaseHTTPRequestHandler):
         ck = self.parse_cookies().get("csrf-token")
         if not ck or ck != self.headers.get("X-CSRF-Token"):
             return self.err("unauthorized", "csrf mismatch", 401)
+        if path == "/api/models/routing":
+            body = self.body_json()
+            rt = STATE["models_routing"]
+            for cap in ("chat", "vision", "asr", "tts"):
+                if cap in body:
+                    sel = body[cap]
+                    rt[cap] = {
+                        "provider": sel.get("provider", rt[cap]["provider"]),
+                        "fallback": sel.get("fallback", rt[cap]["fallback"]),
+                    }
+            return self.ok(dict(rt))
         if path == "/api/cloud":
             body = self.body_json()
             c = STATE["cloud"]
@@ -1084,6 +1101,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.ok({"status": "ok", "uptime": int(time.time() - START)})
         if path == "/api/models":
             return self.ok(model_catalog_document())
+        if path == "/api/models/routing":
+            return self.ok(STATE["models_routing"])
         if path == "/api/models/tasks":
             return self.ok({"tasks": [dict(t) for t in STATE["model_tasks"].values()]})
         if path == "/api/cloud":
