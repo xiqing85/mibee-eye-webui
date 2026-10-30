@@ -272,6 +272,9 @@ const DICT = {
     convHeard: '听到', convAsked: '输入', convReply: '回复',
     convNoReply: '无回复', convThinking: '思考过程', convHideThinking: '收起思考',
     convClear: '清空', convClearConfirm: '确定清空全部对话记录？此操作不可撤销。',
+    engineTitle: '模型路由：对话与看图走在线还是本地（自动=对话优先在线、看图本地）',
+    engineAuto: '自动', engineCloud: '在线 AI', engineLocal: '本地',
+    engineApplied: '模型路由已切换', engineApplyFailed: '切换模型路由失败',
     convCleared: '对话记录已清空',
     // Agent hero + thinking panel + tools (SPEC §3.5 / §6 agent_step)
     agentStateIdle: '待命', agentStateListening: '聆听中', agentStateThinking: '思考中', agentStateAnswering: '回答中',
@@ -649,6 +652,9 @@ const DICT = {
     convHeard: 'Heard', convAsked: 'Input', convReply: 'Reply',
     convNoReply: 'No reply', convThinking: 'Thinking', convHideThinking: 'Hide thinking',
     convClear: 'Clear all', convClearConfirm: 'Clear ALL conversation records? This cannot be undone.',
+    engineTitle: 'Model routing: online or local for chat and vision (auto = chat online-first, vision local)',
+    engineAuto: 'Auto', engineCloud: 'Online AI', engineLocal: 'Local',
+    engineApplied: 'Model routing switched', engineApplyFailed: 'Failed to switch model routing',
     convCleared: 'Conversation records cleared',
     // Agent hero + thinking panel + tools (SPEC §3.5 / §6 agent_step)
     agentStateIdle: 'Standby', agentStateListening: 'Listening', agentStateThinking: 'Thinking',

@@ -290,6 +290,11 @@
               <span id="chat-count" class="mono chat-count"></span>
               <button type="button" id="chat-clear" class="btn-small btn-ghost" data-i18n="convClear">Clear all</button>
             </div>
+            <select id="chat-engine" class="engine-select hidden" data-i18n-title="engineTitle" aria-label="model routing">
+              <option value="auto" data-i18n="engineAuto">Auto</option>
+              <option value="cloud" data-i18n="engineCloud">Online AI</option>
+              <option value="local" data-i18n="engineLocal">Local</option>
+            </select>
           </div>
           <div id="chat-log" class="chat-log"></div>
           <div class="chat-input-row">
