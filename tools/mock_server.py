@@ -310,11 +310,12 @@ CAPS = {
     "substream": True,
     "webrtc": False,
     "events": ["camera_added", "camera_offlined", "param_changed", "ai_detection",
-               "ai_model_changed", "recording", "status", "alarm", "alarm_description", "voice_transcript", "chat_reply", "conversation", "zone_event", "voice_decision", "meeting_state", "model_task", "audio_level", "agent_step", "away_event", "away_state", "scale", "model_call"],
+               "ai_model_changed", "recording", "status", "alarm", "alarm_description", "voice_transcript", "chat_reply", "conversation", "zone_event", "voice_decision", "meeting_state", "model_task", "audio_level", "agent_step", "away_event", "away_state", "scale", "model_call", "thermal.temperature"],
     "config_apply": {"default": "restart", "sections": {"imaging": "immediate",
                                                         # demonstrates the immediate badge on a real config section
                                                         "logging": "immediate",
                                                         "watermark": "restart"}},
+    "thermal": {"available": True, "radiometric": True, "max_fps": 2.0, "rules": 0},
     "restart": True,
     "model_manager": True,
     "cloud_ai": True,
@@ -604,6 +605,32 @@ def _request_entries():
                     "ts": int(time.time()) - next(_REQ_SEQ)})
     return out
 
+
+
+MOCK_THERMAL = {
+    "current": {"timestamp_ms": 1730612345000, "frame_number": 1042, "trusted": True,
+                "ta": 25.4, "sensor_fps": 2.0,
+                "max": {"value_c": 41.2, "x": 18, "y": 7},
+                "min": {"value_c": 19.8, "x": 3, "y": 22}, "spots": []},
+    "grid": [25.0] * (32 * 24),
+}
+
+
+def _thermal_tick():
+    """Animate the mock reading so SSE/poll consumers see live data."""
+    import math
+    i = 0
+    while True:
+        time.sleep(2)
+        i += 1
+        c = MOCK_THERMAL["current"]
+        c["timestamp_ms"] = int(time.time() * 1000)
+        c["frame_number"] += 1
+        c["max"]["value_c"] = round(40.0 + 1.5 * math.sin(i / 4), 1)
+        c["min"]["value_c"] = round(19.0 + 0.8 * math.cos(i / 5), 1)
+        sse_broadcast("thermal.temperature",
+                      {"timestamp_ms": c["timestamp_ms"], "ta": c["ta"], "trusted": True,
+                       "max": dict(c["max"]), "min": dict(c["min"])})
 
 
 def sse_broadcast(event, payload):
@@ -1245,6 +1272,34 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/tools":
             # Tool/skill registry (SPEC §3.5).
             return self.ok({"tools": STATE["tools"]})
+        if path == "/api/thermal/current":
+            from urllib.parse import parse_qs, urlparse
+            q = parse_qs(urlparse(self.path).query)
+            body = dict(MOCK_THERMAL["current"])
+            if (q.get("grid") or ["0"])[0] == "1":
+                body["grid"] = {"w": 32, "h": 24, "unit": "deg_c",
+                                "values": MOCK_THERMAL["grid"]}
+            return self.ok(body)
+        if path == "/api/thermal/snapshot":
+            from urllib.parse import parse_qs, urlparse
+            q = parse_qs(urlparse(self.path).query)
+            if (q.get("format") or ["json"])[0] == "bmp":
+                # Tiny valid 32x24 BMP — the card only checks it loads.
+                px = bytes([120, 60, 30]) * (32 * 24)
+                hdr = b"BM" + (54 + len(px)).to_bytes(4, "little") + b"\x00" * 4 \
+                    + (54).to_bytes(4, "little") + (40).to_bytes(4, "little") \
+                    + (32).to_bytes(4, "little") + (24).to_bytes(4, "little") \
+                    + (1).to_bytes(2, "little") + (24).to_bytes(2, "little") \
+                    + b"\x00" * 20
+                self.send_response(200)
+                self.send_header("Content-Type", "image/bmp")
+                self.send_header("Content-Length", str(len(hdr) + len(px)))
+                self.end_headers()
+                self.wfile.write(hdr + px)
+                return
+            body = dict(MOCK_THERMAL["current"])
+            body["grid"] = {"w": 32, "h": 24, "unit": "deg_c", "values": MOCK_THERMAL["grid"]}
+            return self.ok(body)
         if path == "/api/away":
             # Away mode (SPEC §3.6): armed state.
             st = dict(STATE["away"])
@@ -1703,6 +1758,7 @@ class Handler(BaseHTTPRequestHandler):
 def main():
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 8090
     threading.Thread(target=ai_thread, daemon=True).start()
+    threading.Thread(target=_thermal_tick, daemon=True).start()
     server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
     print(f"mock SPEC server on http://127.0.0.1:{port} (first boot: setup flow — the password is whatever you set)")
     STATE["setup_done"] = False

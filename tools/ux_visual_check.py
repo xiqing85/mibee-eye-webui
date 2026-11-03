@@ -1032,6 +1032,40 @@ with sync_playwright() as p:
     # Default mock carries voice → the ambient card must stay hidden.
     check("ambient: card hidden on voice devices",
           pg.locator("#ambient-card.hidden").count() == 1)
+    # ── Thermal card (SPEC §3.7, capability thermal) ──────────────────
+    pg.click("#nav .nav-tab[data-view=preview]")
+    pg.wait_for_timeout(400)
+    check("thermal: card visible (thermal cap)",
+          pg.locator("#thermal-card:not(.hidden)").is_visible())
+    ta_txt = pg.text_content("#thermal-ta") or ""
+    mx_txt = pg.text_content("#thermal-max") or ""
+    mn_txt = pg.text_content("#thermal-min") or ""
+    check("thermal: readings rendered",
+          "25.4" in ta_txt and "°C" in mx_txt and "°C" in mn_txt and
+          mx_txt != "—" and mn_txt != "—")
+    check("thermal: max position shown",
+          "(19,8)" in (pg.text_content("#thermal-max-pos") or ""))
+    check("thermal: trusted badge visible",
+          pg.locator("#thermal-trusted-badge:not(.hidden)").is_visible())
+    check("thermal: image wired to snapshot endpoint",
+          "/api/thermal/snapshot?format=bmp" in (pg.get_attribute("#thermal-image", "src") or ""))
+    before = pg.text_content("#thermal-max")
+    pg.evaluate("window.sse.dispatchTestEvent('thermal.temperature', "
+                "{timestamp_ms: Date.now(), ta: 26.1, trusted: true, "
+                "max: {value_c: 44.9, x: 5, y: 6}, min: {value_c: 18.2, x: 1, y: 2}})")
+    pg.wait_for_timeout(300)
+    check("thermal: SSE live update changes readings",
+          "44.9" in (pg.text_content("#thermal-max") or "") and
+          "26.1" in (pg.text_content("#thermal-ta") or "") and
+          before != pg.text_content("#thermal-max"))
+    # Negative compat: caps without thermal hide the card.
+    pg.evaluate("window.__test.setCaps({thermal: null})")
+    pg.wait_for_timeout(200)
+    check("thermal: card hidden without thermal cap",
+          pg.locator("#thermal-card.hidden").count() == 1)
+    pg.evaluate("location.reload()")
+    pg.wait_for_timeout(1200)
+
     # Swap capabilities to a cam-form variant (audio_level event, no
     # voice/chat): the ambient card appears and the hero hides — the two
     # are mutually exclusive by design. Chat gates only hide, so the
