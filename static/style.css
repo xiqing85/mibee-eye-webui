@@ -2479,8 +2479,12 @@ input[type="range"]::-moz-range-thumb {
 }
 /* Thermal card (SPEC §3.7) */
 .thermal-body{display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap}
-.thermal-image-wrap{flex:1 1 320px;min-width:260px}
+.thermal-image-wrap{flex:1 1 320px;min-width:260px;position:relative}
 .thermal-image-wrap img{width:100%;border:1px solid var(--border,#444);border-radius:6px;display:block}
+#thermal-canvas{position:absolute;inset:0;width:100%;height:100%;cursor:crosshair;border-radius:6px}
+#thermal-tip{position:fixed;z-index:50;background:var(--card,#111);color:var(--text,#eee);
+border:1px solid var(--border,#555);border-radius:6px;padding:4px 10px;font-size:13px;
+font-variant-numeric:tabular-nums;pointer-events:none;display:none;box-shadow:0 2px 8px #0008}
 .thermal-stats{flex:0 1 220px;display:grid;gap:8px}
 .thermal-stat{display:flex;justify-content:space-between;gap:8px;font-size:14px}
 .thermal-stat b{font-variant-numeric:tabular-nums}
