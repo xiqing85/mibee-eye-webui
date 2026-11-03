@@ -31,7 +31,10 @@ function stopPolling() {
 
 export async function refreshThermal() {
   const r = await api.get('/api/thermal/current');
-  if (r.ok) renderThermal(r.data);
+  // Family envelope (`{ok,data}`) on enveloped devices; the thermal bring-up
+  // dialect serves the reading bare (NVR adapter's live shape) — accept both.
+  const d = r.ok ? r.data : (r.data && r.data.max ? r.data : null);
+  if (d) renderThermal(d);
 }
 
 /// Render one reading (shared by poll + SSE paths). Refreshes the image
@@ -42,7 +45,10 @@ export function renderThermal(j) {
   const ta = $('thermal-ta'), mx = $('thermal-max'), mn = $('thermal-min');
   const mpos = $('thermal-max-pos'), npos = $('thermal-min-pos');
   const fps = $('thermal-fps'), badge = $('thermal-trusted-badge');
-  ta.textContent = j.ta != null ? j.ta.toFixed(1) + ' °C' : '—';
+  // Untrusted frames carry a placeholder ta — show the em dash until the
+  // compensation chain is live (SPEC §3.7 trusted gate).
+  const taOk = j.trusted !== false && j.ta != null;
+  ta.textContent = taOk ? j.ta.toFixed(1) + ' °C' : '—';
   mx.textContent = j.max ? j.max.value_c.toFixed(1) + ' °C' : '—';
   mn.textContent = j.min ? j.min.value_c.toFixed(1) + ' °C' : '—';
   mpos.textContent = j.max ? `(${j.max.x + 1},${j.max.y + 1})` : '';
