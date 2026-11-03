@@ -1058,6 +1058,28 @@ with sync_playwright() as p:
           "44.9" in (pg.text_content("#thermal-max") or "") and
           "26.1" in (pg.text_content("#thermal-ta") or "") and
           before != pg.text_content("#thermal-max"))
+    # Hover point readout: mouse to the image center shows that cell's value.
+    img_box = pg.locator("#thermal-image").bounding_box()
+    if img_box:
+        hx = img_box["x"] + img_box["width"] * 0.5
+        hy = img_box["y"] + img_box["height"] * 0.5
+        pg.mouse.move(hx, hy)
+        pg.wait_for_timeout(250)
+        tip = pg.locator("#thermal-tip")
+        check("thermal: hover tooltip appears",
+              tip.is_visible() and "°C" in (tip.inner_text() or ""))
+        check("thermal: hover shows col/row",
+              (tip.inner_text() or "").count(",") == 1)
+        # Move to another cell — value readout follows the cursor.
+        pg.mouse.move(img_box["x"] + img_box["width"] * 0.25,
+                      img_box["y"] + img_box["height"] * 0.75)
+        pg.wait_for_timeout(250)
+        check("thermal: hover readout follows cursor",
+              tip.is_visible() and "°C" in (tip.inner_text() or ""))
+        pg.mouse.move(img_box["x"] - 30, img_box["y"] - 30)
+        pg.wait_for_timeout(250)
+        check("thermal: tooltip hides on leave", not tip.is_visible())
+
     # Negative compat: caps without thermal hide the card.
     pg.evaluate("window.__test.setCaps({thermal: null})")
     pg.wait_for_timeout(200)

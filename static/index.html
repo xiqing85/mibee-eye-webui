@@ -239,8 +239,9 @@
           <span class="badge hidden" id="thermal-trusted-badge" data-i18n="thermalTrusted">absolute °C</span>
         </div>
         <div class="thermal-body">
-          <div class="thermal-image-wrap">
+          <div class="thermal-image-wrap" id="thermal-wrap">
             <img id="thermal-image" alt="thermal" aria-label="thermal image">
+            <canvas id="thermal-canvas" aria-hidden="true"></canvas>
           </div>
           <div class="thermal-stats">
             <div class="thermal-stat"><span data-i18n="thermalTa">Sensor temp</span><b id="thermal-ta">—</b></div>
