@@ -3,13 +3,14 @@ GO_DIR   ?= ../mibee-eye-go/internal/web/static
 RS_DIR   ?= ../mibee-eye-rs/static
 NB_DIR   ?= ../mibee-eye-hub/crates/web/static
 
-.PHONY: help sync-go sync-rs sync-notebook mock check
+.PHONY: help sync-go sync-rs sync-notebook sync-thermal mock check
 
 help:
 	@echo "targets:"
 	@echo "  sync-go       copy static/ into mibee-eye-go/internal/web/static/"
 	@echo "  sync-rs       copy static/ into mibee-eye-rs/static/"
 	@echo "  sync-notebook copy static/ into mibee-eye-hub/crates/web/static/"
+	@echo "  sync-thermal  copy static/ into mibee-eye-thermal/static/"
 	@echo "  mock          serve static/ against a SPEC-conformant mock API (:8090)"
 
 # rs and Go embed the directory contents directly; clean the destination
@@ -33,6 +34,12 @@ sync-notebook:
 	rm -rf $(NB_DIR)/js $(NB_DIR)/src $(NB_DIR)/app.js $(NB_DIR)/app.bundle.js $(NB_DIR)/index.template.html
 	cp -R $(ROOT)/static/. $(NB_DIR)/
 	@echo "synced -> $(NB_DIR)"
+
+sync-thermal:
+	@test -d ../mibee-eye-thermal || (echo "mibee-eye-thermal not found"; exit 1)
+	rm -rf ../mibee-eye-thermal/static
+	cp -R $(ROOT)/static/. ../mibee-eye-thermal/static/
+	@echo "synced -> ../mibee-eye-thermal/static/"
 
 mock:
 	python3 tools/mock_server.py

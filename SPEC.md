@@ -330,6 +330,60 @@ CSRF 契约：所有 `POST/PUT/DELETE/PATCH` 到 `/api/*`（auth 族除外：log
 - **隐私与持久化**：记录与快照按方言 FIFO 封顶；`DELETE` 清空记录与快照文件。布防状态持久化（服务重启保持布防）。快照文件名由设备生成存储，快照端点只按事件 `id` 取行内文件名——不接受客户端路径。
 - **方言运行时开关（2026-10-10 加法）**：语音布防/撤防、撤防摘要、威慑二问、定时布防、访客推送 webhook、声音告警联动六项能力经方言配置热开闭（notebook 为 `scene.away.*`，`PUT /api/config` 即时生效，见附录 A #44 修订）。
 
+### 3.7 热成像（Extension：`thermal`，v1 同版本加法 2026-11-04，thermal 设备方言附录 A #51）
+
+面向热成像相机（首发设备 mibee-eye-thermal / MLX90640 32x24 阵列）与双光谱设备的温度读数面。NVR 适配器与 webui 卡片共同消费。
+
+#### capabilities 键
+
+```json
+"thermal": {"available": false, "radiometric": false, "max_fps": 0, "rules": 0}
+```
+
+- `available`：传感器管线在跑（总线 + 帧采集活着）。
+- `radiometric`：绝对温度可信（EE 补偿链通过）。`false` 时读数仍返回但 `trusted:false`（诚实暴露 bring-up 态）。
+- `max_fps`：当前可达帧率（bring-up 位模拟 ≈0.03；上拉修复后 2-8）。消费方据此调整轮询节奏。
+- `rules`：已配置的温度规则数（0 = 告警未武装）。
+
+#### 端点（Core 信封内：会话鉴权 + CSRF；机器消费方可走静态 Bearer 单头——方言附录 A #51）
+
+**`GET /api/thermal/current[?grid=1]`** — 一帧当前读数（轮询节奏 ≤1Hz 足够）：
+
+```json
+{
+  "timestamp_ms": 1730612345000, "frame_number": 1042, "trusted": true,
+  "ta": 25.4, "vdd": 3.29,
+  "max": {"value_c": 41.2, "x": 18, "y": 7},
+  "min": {"value_c": 19.8, "x": 3, "y": 22},
+  "spots": [{"name": "配电盒", "value_c": 41.2, "x": 20, "y": 10}],
+  "grid": {"w": 32, "h": 24, "unit": "deg_c", "values": [768 个 float，行主序]}
+}
+```
+
+- **`max`/`min` 恒为嵌套对象（canonical）**：`{"value_c", "x", "y"}`。**坐标系：x=列[0..w-1]、y=行[0..h-1]、原点左上、行主序**——与 `grid.values` 一致（2026-11-04 与 NVR 适配器对表钉死，此前草案的扁平数字写法作废）。
+- `ta`：传感器环境温度；`vdd`：实测供电（诊断用，可省略）。
+- `trusted:false` 帧建议消费方整帧丢弃或标记陈旧；可选加法字段 `last_known_good`（上次可信值 + `age_ms`）与 `reason`（`warmup`|`sensor_lost`|`bus_error`）区分「等待」与「降级」。
+- `spots`：规则点位当前值，字段与 `max/min` 同构（`name` + `value_c` + `x/y` 坐标系同上）；无规则时省略或空数组。
+- `grid`：仅 `?grid=1` 时携带（768 float 全帧矩阵，二次分析/热力图叠加用）。
+
+**`GET /api/thermal/snapshot[?format=bmp|json&lo=&hi=]`**
+
+- `bmp`（thermal 设备 v1 方言）：伪彩渲染图（ironbow，百分位拉伸；`lo`/`hi` 可选固定量程使跨帧颜色可比）。
+- `json`（默认）：等价 `current?grid=1`（radiometric 抓图）。
+
+**`GET|PUT /api/thermal/rules`** — 超温规则（相机侧执行；M4 落地时按方言附录 A #51 细化）。
+
+#### SSE 事件（§6 词汇表加法）
+
+| type | payload | 说明 |
+|------|---------|------|
+| `thermal.temperature` | `{"timestamp_ms","ta","trusted","max":{…},"min":{…}}` | 周期读数推送（节拍 ≥1s，与轮询同源同形减 grid）；通告门控 = `events` 名单含本事件 ∧ `capabilities.thermal` |
+| `alarm`（家族复用） | `{...,"source":"thermal"}` | 超温上升沿——与 GB28181 Alarm NOTIFY 同源同门控，`source` 加法值 `"thermal"` |
+
+#### 负向兼容
+
+键不存在 / `available:false` → webui 隐藏热成像卡、NVR 隐藏温度角标。`trusted:false` 为加法字段，旧消费方忽略无感。
+
 ## 4. 相机资源（Core）
 
 相机是资源，统一挂在 `/api/cameras` 下。单相机设备恒有一个固定 id `"0"` 的相机。
@@ -516,6 +570,7 @@ MSE 流细则：init segment（`ftyp`+`moov`）只发一次，随后每访问单
 | `agent_step` | `{"conversation_id","kind":"tool"\|"phase","state","tool"?,"args"?,"result"?,"duration_ms"?,"note"?}` | 对话 agent 过程步骤（v1 同版本加法 2026-10-08，§3.5）：`kind:"tool"` 为工具调用（`state:"running"\|"done"\|"error"`，完成态带 `result` 与 `duration_ms`）；`kind:"phase"` 为阶段切换（`state:"thinking"\|"answering"`）——前端助手状态行与实时思考面板数据源；通告门控 `capabilities.tools`（notebook 方言附录 A #43） |
 | `model_call` | `{"model","variant","phase":"start"\|"end","duration_ms"?,"ok"?,"timestamp_ms"}` | 单次模型推理的起止（v1 同版本加法 2026-10-26，附录 A #50）：`phase:"start"` 于推理进入时推送（仅 `model`/`variant`/`timestamp_ms`），`phase:"end"` 于推理退出时推送并带 `duration_ms` 与 `ok`（失败为 `false`）。`model` 为模型能力类名（`voice.asr`/`decision`/`llm`/`vlm`/`tts.zh`/`ai`/`audio_ai`/`face.recog`/`cloud.chat` 等，与 `/metrics` `mibee_model_*` 族同键）；`variant` 为模型文件/实例标识。前端模型流动图的数据源（节点波动 + 连线流动）；未知 `model` 名忽略（fail-open）。常驻检测类模型（~1-2 Hz）照常推送——前端按需节流视觉。通告门控 `capabilities.observability.model_flow` ∧ 事件名单含 `model_call` |
 | `away_event` | `{"id","camera_id","kind":"person"\|"activity","started_ms","labels","face_name"?,"description"?,"visitor_reply"?,"snapshot"?,"state"}` | 离家模式事件（v1 同版本加法 2026-10-10，§3.6）：创建与每次状态迁移（VLM 描述补齐/访客回答/超时静默）各推一次同一 `id` 的事件对象，前端按 `id` 就地更新；通告门控 `capabilities.away`（notebook 方言附录 A #44） |
+| `thermal.temperature` | `{"timestamp_ms","ta","trusted","max":{"value_c","x","y"},"min":{…}}` | 热成像周期读数（v1 同版本加法 2026-11-04，§3.7）：与 `/api/thermal/current` 同源同形（减 `grid`）；通告门控 `capabilities.thermal` ∧ `events` 名单 |
 | `away_state` | `{"active","since_ms"?}` | 离家模式布防/撤防（v1 同版本加法 2026-10-10，§3.6）：任一客户端布防/撤防即广播，其余标签页据此同步；通告门控同上 |
 | `recording` | `{"camera_id","active"}` | 录像启停 |
 | `status` | `{"uptime",...}` | 周期状态摘要（可选） |
