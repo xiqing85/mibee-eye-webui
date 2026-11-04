@@ -2490,3 +2490,17 @@ font-variant-numeric:tabular-nums;pointer-events:none;display:none;box-shadow:0 
 .thermal-stat b{font-variant-numeric:tabular-nums}
 .thermal-stat small{color:var(--muted,#999);align-self:center}
 #thermal-trusted-badge{background:#1d6f42;color:#fff;border-radius:10px;padding:2px 10px;font-size:12px}
+
+/* Hardware bring-up card (thermal.hardware, SPEC §3.7) */
+.hardware-body { display: flex; flex-direction: column; gap: 10px; }
+.hardware-current { display: flex; justify-content: space-between; align-items: baseline; }
+.hardware-actions { display: flex; align-items: center; gap: 10px; }
+.hardware-results { display: flex; flex-direction: column; gap: 6px; }
+.hardware-hit { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.hardware-hit-error { font-size: 12px; }
+.hardware-form { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
+.hardware-form input, .hardware-form select {
+  width: 110px; padding: 4px 8px;
+  background: var(--bg, #161a22); color: var(--fg, #e6e9ef);
+  border: 1px solid var(--border, #2a3040); border-radius: 6px;
+}

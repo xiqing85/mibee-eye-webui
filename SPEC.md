@@ -373,6 +373,16 @@ CSRF 契约：所有 `POST/PUT/DELETE/PATCH` 到 `/api/*`（auth 族除外：log
 
 **`GET|PUT /api/thermal/rules`** — 超温规则（相机侧执行；M4 落地时按方言附录 A #51 细化）。
 
+#### 硬件接入（`thermal.hardware` 子键，thermal 设备方言 2026-11-04）
+
+`capabilities.thermal.hardware` 为真时（仅 mibee-eye-thermal），接线（总线/引脚/地址）
+可在 Web 端配置与扫描，换板换模块无需 SSH：
+
+- **`GET /api/hardware`** — 当前目标 `{"bus":{"type":"gpio","sda":..,"scl":..}|{"type":"twi","device":..}|{"type":"auto"},"addr":N,"persist_path":…,"scan":{…}}`（scan 同下方形态）。
+- **`POST /api/hardware/scan`** — 触发一次发现扫描（后台任务，立即返回 `{"running":true}`；运行中重复触发 409）。可选 body `{"gpio_candidates":[[sda,scl],…]}`（缺省经典 PH2/PH3 对）。扫描期间传感器循环让出总线（视频停在最后一帧），完成自动恢复。
+- **`GET /api/hardware/scan`** — 扫描状态 `{"running","started_ms","finished_ms","hits":[{"bus","addr","id","config"}],"pair_errors":[…],"error"}`；`hits[].config` 为即贴 TOML 片段。
+- **`PUT /api/hardware/config`** — body `{"bus":{…同 GET 形},"addr":N}`：立即生效（下一传感器 pass 用新接线；换了传感器模块则自动重读 EEPROM 标定）+ 写 `hardware.toml` 覆盖文件（重启保留；响应 `persisted:false` + `persist_error` 说明未持久化原因）。校验：`addr ∈ 0x30..=0x3E`、gpio sda/scl 非零且不同，否则 400。
+
 #### SSE 事件（§6 词汇表加法）
 
 | type | payload | 说明 |

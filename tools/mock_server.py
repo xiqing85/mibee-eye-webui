@@ -315,7 +315,7 @@ CAPS = {
                                                         # demonstrates the immediate badge on a real config section
                                                         "logging": "immediate",
                                                         "watermark": "restart"}},
-    "thermal": {"available": True, "radiometric": True, "max_fps": 2.0, "rules": 0},
+    "thermal": {"available": True, "radiometric": True, "max_fps": 2.0, "rules": 0, "hardware": True},
     "restart": True,
     "model_manager": True,
     "cloud_ai": True,
@@ -606,6 +606,14 @@ def _request_entries():
     return out
 
 
+
+# Hardware bring-up (SPEC §3.7 thermal.hardware): the scan is a fake
+# 3-second background job so the card's polling path is exercised for real.
+MOCK_HARDWARE = {
+    "config": {"bus": {"type": "gpio", "sda": 226, "scl": 227}, "addr": 51},
+    "scan": {"running": False, "started_ms": 0, "finished_ms": None,
+             "hits": [], "pair_errors": [], "error": None},
+}
 
 MOCK_THERMAL = {
     "current": {"timestamp_ms": 1730612345000, "frame_number": 1042, "trusted": True,
@@ -942,6 +950,16 @@ class Handler(BaseHTTPRequestHandler):
         ck = self.parse_cookies().get("csrf-token")
         if not ck or ck != self.headers.get("X-CSRF-Token"):
             return self.err("unauthorized", "csrf mismatch", 401)
+        if path == "/api/hardware/config":
+            body = self.body_json()
+            bus = body.get("bus") or {}
+            addr = int(body.get("addr") or 0)
+            if not 0x30 <= addr <= 0x3E:
+                return self.err("addr must be 0x30..=0x3E", "bad addr", 400)
+            if bus.get("type") == "gpio" and bus.get("sda") == bus.get("scl"):
+                return self.err("gpio sda/scl must be distinct non-zero pins", "bad pins", 400)
+            MOCK_HARDWARE["config"] = {"bus": bus, "addr": addr}
+            return self.ok({"bus": bus, "addr": addr, "persisted": True, "persist_error": None})
         if path == "/api/models/routing":
             body = self.body_json()
             rt = STATE["models_routing"]
@@ -1272,6 +1290,13 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/tools":
             # Tool/skill registry (SPEC §3.5).
             return self.ok({"tools": STATE["tools"]})
+        if path == "/api/hardware":
+            body = dict(MOCK_HARDWARE["config"])
+            body["persist_path"] = "/etc/mibee-eye-thermal/hardware.toml"
+            body["scan"] = dict(MOCK_HARDWARE["scan"])
+            return self.ok(body)
+        if path == "/api/hardware/scan":
+            return self.ok(dict(MOCK_HARDWARE["scan"]))
         if path == "/api/thermal/current":
             from urllib.parse import parse_qs, urlparse
             q = parse_qs(urlparse(self.path).query)
@@ -1353,6 +1378,25 @@ class Handler(BaseHTTPRequestHandler):
             body = {}
         else:
             body = self.body_json()
+        if path == "/api/hardware/scan":
+            if MOCK_HARDWARE["scan"]["running"]:
+                return self.err("scan already running", "conflict", 409)
+            MOCK_HARDWARE["scan"] = {"running": True, "started_ms": int(time.time() * 1000),
+                                     "finished_ms": None, "hits": [], "pair_errors": [],
+                                     "error": None}
+
+            def _sweep():
+                time.sleep(3)
+                MOCK_HARDWARE["scan"] = {
+                    "running": False,
+                    "started_ms": MOCK_HARDWARE["scan"]["started_ms"],
+                    "finished_ms": int(time.time() * 1000),
+                    "hits": [{"bus": "gpio:226,227", "addr": 51, "id": 6401,
+                              "config": '[sensor]\nbus = { type = "gpio", sda = 226, scl = 227 }\naddr = 0x33\n'}],
+                    "pair_errors": [], "error": None}
+
+            threading.Thread(target=_sweep, daemon=True).start()
+            return self.ok({"running": True})
         if path == "/api/chat":
             text = str(body.get("text") or "")
             # SPEC appendix A #29: vision=true → grounded "vlm", else the

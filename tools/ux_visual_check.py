@@ -1080,6 +1080,41 @@ with sync_playwright() as p:
         pg.wait_for_timeout(250)
         check("thermal: tooltip hides on leave", not tip.is_visible())
 
+    # ── Hardware bring-up card (SPEC §3.7 thermal.hardware) ───────────
+    check("hardware: card visible (thermal.hardware)",
+          pg.locator("#hardware-card:not(.hidden)").is_visible())
+    cur = pg.text_content("#hardware-current-value") or ""
+    check("hardware: current wiring rendered",
+          "GPIO 226/227" in cur and "0x33" in cur)
+    check("hardware: manual form prefilled with live addr",
+          (pg.input_value("#hardware-addr") or "") == "0x33")
+    pg.click("#hardware-scan-btn")
+    pg.wait_for_timeout(400)
+    check("hardware: scan starts (status shows scanning)",
+          "扫描中" in (pg.text_content("#hardware-scan-status") or "") and
+          pg.locator("#hardware-scan-btn").is_disabled())
+    pg.wait_for_selector("#hardware-scan-results .hardware-hit", timeout=10000)
+    check("hardware: scan finds a module (hit row)",
+          "gpio:226,227" in (pg.text_content("#hardware-scan-results .hardware-hit") or ""))
+    check("hardware: scan-done status mentions count",
+          "1" in (pg.text_content("#hardware-scan-status") or ""))
+    pg.click("#hardware-scan-results .hardware-hit button")
+    pg.wait_for_timeout(600)
+    check("hardware: apply reports persisted",
+          "已应用" in (pg.text_content("#hardware-msg") or ""))
+    # Manual form: switch to twi and apply — PUT goes through, current follows.
+    pg.select_option("#hardware-bus-type", "twi")
+    pg.wait_for_timeout(100)
+    check("hardware: twi device field shown / gpio pins hidden",
+          pg.locator("#hardware-device:not(.hidden)").is_visible() and
+          pg.locator("#hardware-sda.hidden").count() == 1)
+    pg.fill("#hardware-device", "/dev/i2c-2")
+    pg.fill("#hardware-addr", "0x33")
+    pg.click("#hardware-apply-btn")
+    pg.wait_for_timeout(600)
+    check("hardware: manual apply updates current wiring",
+          "/dev/i2c-2" in (pg.text_content("#hardware-current-value") or ""))
+
     # Negative compat: caps without thermal hide the card.
     pg.evaluate("window.__test.setCaps({thermal: null})")
     pg.wait_for_timeout(200)
